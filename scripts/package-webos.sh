@@ -11,10 +11,12 @@ vcpkg_root="${VCPKG_ROOT:-$repo_root/vcpkg}"
 triplet="${VCPKG_TARGET_TRIPLET:-arm-webos}"
 install_prefix="${WEBOS_INSTALL_PREFIX:-/usr/palm/applications/com.rf1705.esde}"
 version="${WEBOS_PACKAGE_VERSION:-3.4.1}"
+host_cmake="${HOST_CMAKE:-/usr/bin/cmake}"
 
-for command in ares-package cmake rsvg-convert; do
+for command in ares-package rsvg-convert; do
   command -v "$command" >/dev/null 2>&1 || { echo "$command is required." >&2; exit 1; }
 done
+[[ -x "$host_cmake" ]] || { echo "Host CMake not found at $host_cmake" >&2; exit 1; }
 for variable in CC STAGING_DIR SDL2_BUNDLE_DIR; do
   [[ -n "${!variable:-}" ]] || { echo "$variable is not set." >&2; exit 1; }
 done
@@ -22,7 +24,7 @@ done
 
 rm -rf "$dist_dir"
 mkdir -p "$package_dir/lib" "$stage_dir"
-DESTDIR="$stage_dir" cmake --install "$build_dir"
+DESTDIR="$stage_dir" "$host_cmake" --install "$build_dir"
 installed="$stage_dir$install_prefix"
 [[ -d "$installed" ]] || { echo "Installed ES-DE tree not found at $installed" >&2; exit 1; }
 cp -a "$installed"/. "$package_dir/"
