@@ -27,12 +27,17 @@ env:
   ARES_PACKAGE_URL: https://github.com/webosbrew/ares-cli-rs/releases/download/v0.2.0/ares-package_0.2.0-1_amd64.deb
   ARES_PACKAGE_SHA256: 4d71e621e3a8b92903bc3f4c54cc8c3afac2f3083fca6972e4fecbd70cb40b5b
   SDL2_ARCHIVE_URL: https://github.com/webosbrew/SDL-webOS/releases/download/release-2.30.12-webos.1/SDL2-2.30.12-webos-abi.tar.gz
+  VCPKG_REF: eaca4a577b6b678c6e10252754b6988a61746c19
   VCPKG_TARGET_TRIPLET: arm-webos
 
 jobs:
+  dependencies:
+    uses: ./.github/workflows/dependencies.yml
+
   build:
+    needs: dependencies
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
@@ -42,10 +47,11 @@ jobs:
             https://gitlab.com/es-de/emulationstation-de.git upstream
           git -C upstream rev-parse HEAD
 
-      - name: Check out vcpkg
+      - name: Check out pinned vcpkg
         uses: actions/checkout@v4
         with:
           repository: microsoft/vcpkg
+          ref: ${{ env.VCPKG_REF }}
           path: vcpkg
           fetch-depth: 1
 
@@ -54,36 +60,48 @@ jobs:
           bash -n scripts/*.sh
           python3 -m py_compile scripts/patch-esde-webos.py
 
+      - name: Restore prepared dependencies
+        id: dependency-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            build/webos-deps
+            vcpkg/installed
+          key: ${{ needs.dependencies.outputs.cache_key }}
+          fail-on-cache-miss: true
+
       - name: Download webOS build tools
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p "$RUNNER_TEMP/downloads"
-          curl --fail --location --retry 3 "$ARES_PACKAGE_URL" --output "$RUNNER_TEMP/downloads/ares-package.deb"
-          echo "$ARES_PACKAGE_SHA256  $RUNNER_TEMP/downloads/ares-package.deb" | sha256sum --check --strict
-          gh release download --repo openlgtv/buildroot-nc4 --pattern "$SDK_ARCHIVE" --dir "$RUNNER_TEMP/downloads"
-          curl --fail --location --retry 3 "$SDL2_ARCHIVE_URL" --output "$RUNNER_TEMP/downloads/sdl2.tar.gz"
+          curl --fail --location --retry 3 \
+            "$ARES_PACKAGE_URL" \
+            --output "$RUNNER_TEMP/downloads/ares-package.deb"
+          echo "$ARES_PACKAGE_SHA256  $RUNNER_TEMP/downloads/ares-package.deb" \
+            | sha256sum --check --strict
+          gh release download \
+            --repo openlgtv/buildroot-nc4 \
+            --pattern "$SDK_ARCHIVE" \
+            --dir "$RUNNER_TEMP/downloads"
+          curl --fail --location --retry 3 \
+            "$SDL2_ARCHIVE_URL" \
+            --output "$RUNNER_TEMP/downloads/sdl2.tar.gz"
 
-      - name: Install tools and SDK
+      - name: Install build tools and SDK
         run: |
           sudo apt-get update
-          sudo apt-get install -y autoconf autoconf-archive automake bison build-essential cmake curl flex gperf libtool librsvg2-bin meson nasm ninja-build pkg-config python3-jinja2 python3-setuptools unzip xz-utils zip "$RUNNER_TEMP/downloads/ares-package.deb"
+          sudo apt-get install -y \
+            build-essential cmake librsvg2-bin ninja-build pkg-config \
+            python3-jinja2 unzip xz-utils zip \
+            "$RUNNER_TEMP/downloads/ares-package.deb"
           mkdir -p "$RUNNER_TEMP/webos-ndk" "$RUNNER_TEMP/sdl2"
-          tar -xzf "$RUNNER_TEMP/downloads/$SDK_ARCHIVE" -C "$RUNNER_TEMP/webos-ndk" --strip-components=1
+          tar -xzf "$RUNNER_TEMP/downloads/$SDK_ARCHIVE" \
+            -C "$RUNNER_TEMP/webos-ndk" \
+            --strip-components=1
           "$RUNNER_TEMP/webos-ndk/relocate-sdk.sh"
-          tar -xzf "$RUNNER_TEMP/downloads/sdl2.tar.gz" -C "$RUNNER_TEMP/sdl2"
-
-      - name: Cache dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            build/webos-deps
-            build/dependency-sources/downloads
-            vcpkg/downloads
-            vcpkg/buildtrees
-            vcpkg/packages
-            vcpkg/installed
-          key: esde-webos-${{ runner.os }}-${{ env.SDK_ARCHIVE }}-${{ hashFiles('scripts/*.sh', 'cmake/*.cmake.in', 'vcpkg-triplets/*.cmake', 'vcpkg-ports/**') }}
+          tar -xzf "$RUNNER_TEMP/downloads/sdl2.tar.gz" \
+            -C "$RUNNER_TEMP/sdl2"
 
       - name: Prepare toolchain
         run: |
@@ -95,22 +113,19 @@ jobs:
           echo "WEBOS_DEPS_PREFIX=$GITHUB_WORKSPACE/build/webos-deps" >> "$GITHUB_ENV"
           echo "VCPKG_ROOT=$GITHUB_WORKSPACE/vcpkg" >> "$GITHUB_ENV"
 
-      - name: Build dependencies
-        run: |
-          ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
-          source "$RUNNER_TEMP/webos-ndk/environment-setup"
-          bash scripts/build-system-dependencies.sh
-          bash scripts/build-vcpkg-dependencies.sh
-
       - name: Build ES-DE
         run: |
           source "$RUNNER_TEMP/webos-ndk/environment-setup"
-          ESDE_SOURCE_DIR="$GITHUB_WORKSPACE/upstream" BUILD_DIR="$GITHUB_WORKSPACE/build/es-de" bash scripts/build-webos.sh
+          ESDE_SOURCE_DIR="$GITHUB_WORKSPACE/upstream" \
+            BUILD_DIR="$GITHUB_WORKSPACE/build/es-de" \
+            bash scripts/build-webos.sh
 
       - name: Package IPK
         run: |
           source "$RUNNER_TEMP/webos-ndk/environment-setup"
-          BUILD_DIR="$GITHUB_WORKSPACE/build/es-de" DIST_DIR="$GITHUB_WORKSPACE/dist" bash scripts/package-webos.sh
+          BUILD_DIR="$GITHUB_WORKSPACE/build/es-de" \
+            DIST_DIR="$GITHUB_WORKSPACE/dist" \
+            bash scripts/package-webos.sh
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -139,4 +154,8 @@ jobs:
         run: |
           cd release
           sha256sum --check *.sha256
-          gh release create "$GITHUB_REF_NAME" *.ipk *.sha256 --repo "$GITHUB_REPOSITORY" --verify-tag --title "$GITHUB_REF_NAME" --generate-notes
+          gh release create "$GITHUB_REF_NAME" *.ipk *.sha256 \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes
