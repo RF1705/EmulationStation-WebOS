@@ -67,7 +67,7 @@ jobs:
       - name: Install tools and SDK
         run: |
           sudo apt-get update
-          sudo apt-get install -y autoconf automake bison build-essential cmake curl flex gperf libtool librsvg2-bin meson nasm ninja-build pkg-config python3-jinja2 python3-setuptools unzip xz-utils zip "$RUNNER_TEMP/downloads/ares-package.deb"
+          sudo apt-get install -y autoconf autoconf-archive automake bison build-essential cmake curl flex gperf libtool librsvg2-bin meson nasm ninja-build pkg-config python3-jinja2 python3-setuptools unzip xz-utils zip "$RUNNER_TEMP/downloads/ares-package.deb"
           mkdir -p "$RUNNER_TEMP/webos-ndk" "$RUNNER_TEMP/sdl2"
           tar -xzf "$RUNNER_TEMP/downloads/$SDK_ARCHIVE" -C "$RUNNER_TEMP/webos-ndk" --strip-components=1
           "$RUNNER_TEMP/webos-ndk/relocate-sdk.sh"
