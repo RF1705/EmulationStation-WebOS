@@ -1,0 +1,139 @@
+name: Build webOS IPK
+
+on:
+  push:
+    branches: [main]
+    tags: ['esde_*_webos_*']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      esde_ref:
+        description: ES-DE tag, branch or commit
+        required: true
+        default: v3.4.1
+
+permissions:
+  contents: read
+
+concurrency:
+  group: esde-webos-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ESDE_REF: ${{ inputs.esde_ref || 'v3.4.1' }}
+  WEBOS_PACKAGE_VERSION: 3.4.1
+  WEBOS_BUILD_SUFFIX: webos0.1.0
+  SDK_ARCHIVE: arm-webos-linux-gnueabi_sdk-buildroot-x86_64.tar.gz
+  SDL2_ARCHIVE_URL: https://github.com/webosbrew/SDL-webOS/releases/download/release-2.30.12-webos.1/SDL2-2.30.12-webos-abi.tar.gz
+  VCPKG_TARGET_TRIPLET: arm-webos
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out ES-DE
+        run: |
+          git clone --filter=blob:none --depth 1 --branch "$ESDE_REF" \
+            https://gitlab.com/es-de/emulationstation-de.git upstream
+          git -C upstream rev-parse HEAD
+
+      - name: Check out vcpkg
+        uses: actions/checkout@v4
+        with:
+          repository: microsoft/vcpkg
+          path: vcpkg
+          fetch-depth: 1
+
+      - name: Validate scripts
+        run: |
+          bash -n scripts/*.sh
+          python3 -m py_compile scripts/patch-esde-webos.py
+
+      - name: Download webOS build tools
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/downloads"
+          gh release download --repo webosbrew/ares-cli-rs --pattern 'ares-package_*_amd64.deb' --dir "$RUNNER_TEMP/downloads"
+          gh release download --repo openlgtv/buildroot-nc4 --pattern "$SDK_ARCHIVE" --dir "$RUNNER_TEMP/downloads"
+          curl --fail --location --retry 3 "$SDL2_ARCHIVE_URL" --output "$RUNNER_TEMP/downloads/sdl2.tar.gz"
+
+      - name: Install tools and SDK
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y autoconf automake bison build-essential cmake curl flex gperf libtool librsvg2-bin meson nasm ninja-build pkg-config python3-jinja2 python3-setuptools unzip xz-utils zip "$RUNNER_TEMP"/downloads/ares-package_*_amd64.deb
+          mkdir -p "$RUNNER_TEMP/webos-ndk" "$RUNNER_TEMP/sdl2"
+          tar -xzf "$RUNNER_TEMP/downloads/$SDK_ARCHIVE" -C "$RUNNER_TEMP/webos-ndk" --strip-components=1
+          "$RUNNER_TEMP/webos-ndk/relocate-sdk.sh"
+          tar -xzf "$RUNNER_TEMP/downloads/sdl2.tar.gz" -C "$RUNNER_TEMP/sdl2"
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/webos-deps
+            build/dependency-sources/downloads
+            vcpkg/downloads
+            vcpkg/buildtrees
+            vcpkg/packages
+            vcpkg/installed
+          key: esde-webos-${{ runner.os }}-${{ env.SDK_ARCHIVE }}-${{ hashFiles('scripts/*.sh', 'vcpkg-triplets/arm-webos.cmake') }}
+
+      - name: Prepare toolchain
+        run: |
+          source "$RUNNER_TEMP/webos-ndk/environment-setup"
+          export WEBOS_CHAINLOAD_TOOLCHAIN="$GITHUB_WORKSPACE/build/webos-chainload.cmake"
+          bash scripts/create-toolchain.sh
+          echo "WEBOS_CHAINLOAD_TOOLCHAIN=$WEBOS_CHAINLOAD_TOOLCHAIN" >> "$GITHUB_ENV"
+          echo "SDL2_BUNDLE_DIR=$RUNNER_TEMP/sdl2" >> "$GITHUB_ENV"
+          echo "WEBOS_DEPS_PREFIX=$GITHUB_WORKSPACE/build/webos-deps" >> "$GITHUB_ENV"
+          echo "VCPKG_ROOT=$GITHUB_WORKSPACE/vcpkg" >> "$GITHUB_ENV"
+
+      - name: Build dependencies
+        run: |
+          ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
+          source "$RUNNER_TEMP/webos-ndk/environment-setup"
+          bash scripts/build-system-dependencies.sh
+          bash scripts/build-vcpkg-dependencies.sh
+
+      - name: Build ES-DE
+        run: |
+          source "$RUNNER_TEMP/webos-ndk/environment-setup"
+          ESDE_SOURCE_DIR="$GITHUB_WORKSPACE/upstream" BUILD_DIR="$GITHUB_WORKSPACE/build/es-de" bash scripts/build-webos.sh
+
+      - name: Package IPK
+        run: |
+          source "$RUNNER_TEMP/webos-ndk/environment-setup"
+          BUILD_DIR="$GITHUB_WORKSPACE/build/es-de" DIST_DIR="$GITHUB_WORKSPACE/dist" bash scripts/package-webos.sh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: esde-webos-${{ github.sha }}-arm
+          path: |
+            dist/*.ipk
+            dist/*.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    if: github.ref_type == 'tag' && startsWith(github.ref_name, 'esde_')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: esde-webos-${{ github.sha }}-arm
+          path: release
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd release
+          sha256sum --check *.sha256
+          gh release create "$GITHUB_REF_NAME" *.ipk *.sha256 --repo "$GITHUB_REPOSITORY" --verify-tag --title "$GITHUB_REF_NAME" --generate-notes
