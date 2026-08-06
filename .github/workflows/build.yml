@@ -83,7 +83,7 @@ jobs:
             vcpkg/buildtrees
             vcpkg/packages
             vcpkg/installed
-          key: esde-webos-${{ runner.os }}-${{ env.SDK_ARCHIVE }}-${{ hashFiles('scripts/*.sh', 'vcpkg-triplets/arm-webos.cmake') }}
+          key: esde-webos-${{ runner.os }}-${{ env.SDK_ARCHIVE }}-${{ hashFiles('scripts/*.sh', 'cmake/*.cmake.in', 'vcpkg-triplets/*.cmake', 'vcpkg-ports/**') }}
 
       - name: Prepare toolchain
         run: |
