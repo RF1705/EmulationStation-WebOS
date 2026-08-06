@@ -14,4 +14,8 @@ set(CMAKE_FIND_ROOT_PATH "@SYSROOT@")
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
 set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY BOTH)
 set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE BOTH)
-set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE BOTH)
+
+# The SDK sysroot includes CMake package metadata for libraries such as Boost.
+# Do not let those package configs shadow the versions built and managed by
+# vcpkg. Target headers and libraries from the sysroot remain discoverable.
+set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE NEVER)
