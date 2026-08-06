@@ -1,0 +1,117 @@
+name: Prepare webOS dependencies
+
+on:
+  workflow_call:
+    outputs:
+      cache_key:
+        description: Cache key containing the prepared webOS dependency tree
+        value: ${{ jobs.dependencies.outputs.cache_key }}
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  SDK_ARCHIVE: arm-webos-linux-gnueabi_sdk-buildroot-x86_64.tar.gz
+  VCPKG_REF: eaca4a577b6b678c6e10252754b6988a61746c19
+  VCPKG_TARGET_TRIPLET: arm-webos
+
+jobs:
+  dependencies:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    outputs:
+      cache_key: ${{ steps.dependency-key.outputs.cache_key }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Calculate dependency cache key
+        id: dependency-key
+        run: |
+          dependency_hash="${{ hashFiles(
+            'scripts/build-system-dependencies.sh',
+            'scripts/build-vcpkg-dependencies.sh',
+            'scripts/create-toolchain.sh',
+            'cmake/*.cmake.in',
+            'vcpkg-triplets/*.cmake',
+            'vcpkg-ports/**',
+            '.github/workflows/dependencies.yml'
+          ) }}"
+          cache_key="esde-webos-deps-${RUNNER_OS}-${SDK_ARCHIVE}-${VCPKG_REF}-${dependency_hash}"
+          echo "cache_key=$cache_key" >> "$GITHUB_OUTPUT"
+          echo "Dependency cache key: $cache_key"
+
+      - name: Check dependency cache
+        id: dependency-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            build/webos-deps
+            vcpkg/installed
+          key: ${{ steps.dependency-key.outputs.cache_key }}
+          lookup-only: true
+
+      - name: Check out pinned vcpkg
+        if: steps.dependency-cache.outputs.cache-hit != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: microsoft/vcpkg
+          ref: ${{ env.VCPKG_REF }}
+          path: vcpkg
+          fetch-depth: 1
+
+      - name: Validate dependency scripts
+        if: steps.dependency-cache.outputs.cache-hit != 'true'
+        run: bash -n scripts/build-system-dependencies.sh scripts/build-vcpkg-dependencies.sh scripts/create-toolchain.sh
+
+      - name: Download webOS SDK
+        if: steps.dependency-cache.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/downloads"
+          gh release download \
+            --repo openlgtv/buildroot-nc4 \
+            --pattern "$SDK_ARCHIVE" \
+            --dir "$RUNNER_TEMP/downloads"
+
+      - name: Install dependency build tools and SDK
+        if: steps.dependency-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            autoconf autoconf-archive automake bison build-essential cmake \
+            curl flex gperf libtool meson nasm ninja-build pkg-config \
+            python3-jinja2 python3-setuptools unzip xz-utils zip
+          mkdir -p "$RUNNER_TEMP/webos-ndk"
+          tar -xzf "$RUNNER_TEMP/downloads/$SDK_ARCHIVE" \
+            -C "$RUNNER_TEMP/webos-ndk" \
+            --strip-components=1
+          "$RUNNER_TEMP/webos-ndk/relocate-sdk.sh"
+
+      - name: Prepare dependency toolchain
+        if: steps.dependency-cache.outputs.cache-hit != 'true'
+        run: |
+          source "$RUNNER_TEMP/webos-ndk/environment-setup"
+          export WEBOS_CHAINLOAD_TOOLCHAIN="$GITHUB_WORKSPACE/build/webos-chainload.cmake"
+          bash scripts/create-toolchain.sh
+          echo "WEBOS_CHAINLOAD_TOOLCHAIN=$WEBOS_CHAINLOAD_TOOLCHAIN" >> "$GITHUB_ENV"
+          echo "WEBOS_DEPS_PREFIX=$GITHUB_WORKSPACE/build/webos-deps" >> "$GITHUB_ENV"
+          echo "VCPKG_ROOT=$GITHUB_WORKSPACE/vcpkg" >> "$GITHUB_ENV"
+
+      - name: Build dependencies
+        if: steps.dependency-cache.outputs.cache-hit != 'true'
+        run: |
+          ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
+          source "$RUNNER_TEMP/webos-ndk/environment-setup"
+          bash scripts/build-system-dependencies.sh
+          bash scripts/build-vcpkg-dependencies.sh
+
+      - name: Save prepared dependency tree
+        if: steps.dependency-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            build/webos-deps
+            vcpkg/installed
+          key: ${{ steps.dependency-key.outputs.cache_key }}
