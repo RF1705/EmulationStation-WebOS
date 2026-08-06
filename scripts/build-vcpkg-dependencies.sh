@@ -26,7 +26,7 @@ export VCPKG_DISABLE_METRICS=1
   harfbuzz \
   icu \
   libgit2 \
-  "poppler[cpp]" \
+  poppler \
   pugixml \
   --triplet "$triplet" \
   --overlay-triplets "$repo_root/vcpkg-triplets"
