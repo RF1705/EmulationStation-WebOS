@@ -40,6 +40,13 @@ fi
 sdl_include="$(dirname "$sdl_include")"
 
 vcpkg_prefix="$vcpkg_root/installed/$triplet"
+freeimage_include="$vcpkg_prefix/include"
+freeimage_library="$(find "$vcpkg_prefix/lib" -maxdepth 1 -type f \( -name 'libfreeimage.so' -o -name 'libfreeimage.a' \) -print -quit)"
+if [[ ! -f "$freeimage_include/FreeImage.h" || -z "$freeimage_library" ]]; then
+  echo "FreeImage headers or library were not found below $vcpkg_prefix" >&2
+  exit 1
+fi
+
 export PKG_CONFIG_ALLOW_CROSS=1
 export PKG_CONFIG_SYSROOT_DIR=""
 export PKG_CONFIG_LIBDIR="$deps_prefix/lib/pkgconfig:$deps_prefix/share/pkgconfig:$vcpkg_prefix/lib/pkgconfig:$vcpkg_prefix/share/pkgconfig"
@@ -68,6 +75,9 @@ mkdir -p "$build_dir"
   -DDEINIT_ON_LAUNCH=ON \
   -DVIDEO_HW_DECODING=OFF \
   -DCEC=OFF \
+  -DFreeImage_INCLUDE_DIR="$freeimage_include" \
+  -DFreeImage_LIBRARY_REL="$freeimage_library" \
+  -DFreeImage_LIBRARY="$freeimage_library" \
   -DSDL2_INCLUDE_DIR="$sdl_include" \
   -DSDL2_INCLUDE_DIRS="$sdl_include" \
   -DSDL2_LIBRARY="$sdl_library" \
