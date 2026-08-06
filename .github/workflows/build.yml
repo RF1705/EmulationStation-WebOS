@@ -24,6 +24,8 @@ env:
   WEBOS_PACKAGE_VERSION: 3.4.1
   WEBOS_BUILD_SUFFIX: webos0.1.0
   SDK_ARCHIVE: arm-webos-linux-gnueabi_sdk-buildroot-x86_64.tar.gz
+  ARES_PACKAGE_URL: https://github.com/webosbrew/ares-cli-rs/releases/download/v0.2.0/ares-package_0.2.0-1_amd64.deb
+  ARES_PACKAGE_SHA256: 4d71e621e3a8b92903bc3f4c54cc8c3afac2f3083fca6972e4fecbd70cb40b5b
   SDL2_ARCHIVE_URL: https://github.com/webosbrew/SDL-webOS/releases/download/release-2.30.12-webos.1/SDL2-2.30.12-webos-abi.tar.gz
   VCPKG_TARGET_TRIPLET: arm-webos
 
@@ -57,14 +59,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p "$RUNNER_TEMP/downloads"
-          gh release download --repo webosbrew/ares-cli-rs --pattern 'ares-package_*_amd64.deb' --dir "$RUNNER_TEMP/downloads"
+          curl --fail --location --retry 3 "$ARES_PACKAGE_URL" --output "$RUNNER_TEMP/downloads/ares-package.deb"
+          echo "$ARES_PACKAGE_SHA256  $RUNNER_TEMP/downloads/ares-package.deb" | sha256sum --check --strict
           gh release download --repo openlgtv/buildroot-nc4 --pattern "$SDK_ARCHIVE" --dir "$RUNNER_TEMP/downloads"
           curl --fail --location --retry 3 "$SDL2_ARCHIVE_URL" --output "$RUNNER_TEMP/downloads/sdl2.tar.gz"
 
       - name: Install tools and SDK
         run: |
           sudo apt-get update
-          sudo apt-get install -y autoconf automake bison build-essential cmake curl flex gperf libtool librsvg2-bin meson nasm ninja-build pkg-config python3-jinja2 python3-setuptools unzip xz-utils zip "$RUNNER_TEMP"/downloads/ares-package_*_amd64.deb
+          sudo apt-get install -y autoconf automake bison build-essential cmake curl flex gperf libtool librsvg2-bin meson nasm ninja-build pkg-config python3-jinja2 python3-setuptools unzip xz-utils zip "$RUNNER_TEMP/downloads/ares-package.deb"
           mkdir -p "$RUNNER_TEMP/webos-ndk" "$RUNNER_TEMP/sdl2"
           tar -xzf "$RUNNER_TEMP/downloads/$SDK_ARCHIVE" -C "$RUNNER_TEMP/webos-ndk" --strip-components=1
           "$RUNNER_TEMP/webos-ndk/relocate-sdk.sh"
