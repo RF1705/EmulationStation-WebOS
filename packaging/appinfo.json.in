@@ -1,0 +1,15 @@
+{
+  "id": "com.rf1705.esde",
+  "version": "@VERSION@",
+  "vendor": "ES-DE Project / RF1705",
+  "title": "ES-DE",
+  "icon": "icon160.png",
+  "main": "es-de",
+  "type": "native",
+  "appDescription": "Game frontend for LG webOS",
+  "iconColor": "#20232a",
+  "noSplashOnLaunch": true,
+  "useAllMouseButtons": true,
+  "useAllKeyboardKeys": true,
+  "disableBackHistoryAPI": true
+}
