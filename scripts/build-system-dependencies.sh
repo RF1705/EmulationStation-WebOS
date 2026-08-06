@@ -48,40 +48,8 @@ build_alsa() {
   )
 }
 
-build_bluez() {
-  local version=5.83
-  local archive="$download_dir/bluez-$version.tar.xz"
-  local source="$source_root/bluez-$version"
-  if [[ -s "$prefix/lib/pkgconfig/bluez.pc" || -s "$prefix/lib/libbluetooth.so" ]]; then
-    return
-  fi
-  fetch "https://www.kernel.org/pub/linux/bluetooth/bluez-$version.tar.xz" "$archive"
-  rm -rf "$source"
-  tar -xJf "$archive" -C "$source_root"
-  (
-    cd "$source"
-    ./configure \
-      --host="$target" \
-      --prefix="$prefix" \
-      --enable-library \
-      --enable-shared \
-      --disable-static \
-      --disable-systemd \
-      --disable-udev \
-      --disable-cups \
-      --disable-obex \
-      --disable-mesh \
-      --disable-tools \
-      --disable-monitor \
-      --disable-client \
-      --disable-testing \
-      --disable-manpages
-    make -j"$jobs"
-    make install
-  )
-}
-
+# webOS owns the Bluetooth stack and SDL-webOS exposes paired controllers.
+# Building BlueZ here would only add an unused D-Bus dependency to the app.
 build_alsa
-build_bluez
 
 echo "System dependencies installed below $prefix"
