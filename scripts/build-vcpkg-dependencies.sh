@@ -48,4 +48,5 @@ cmake --version | head -n 1
   poppler \
   pugixml \
   --triplet "$triplet" \
-  --overlay-triplets "$repo_root/vcpkg-triplets"
+  --overlay-triplets "$repo_root/vcpkg-triplets" \
+  --overlay-ports "$repo_root/vcpkg-ports"
