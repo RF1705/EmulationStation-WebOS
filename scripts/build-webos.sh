@@ -8,6 +8,7 @@ deps_prefix="${WEBOS_DEPS_PREFIX:-$repo_root/build/webos-deps}"
 vcpkg_root="${VCPKG_ROOT:-$repo_root/vcpkg}"
 triplet="${VCPKG_TARGET_TRIPLET:-arm-webos}"
 install_prefix="${WEBOS_INSTALL_PREFIX:-/usr/palm/applications/com.rf1705.esde}"
+host_cmake="${HOST_CMAKE:-/usr/bin/cmake}"
 
 for variable in CC CXX STAGING_DIR WEBOS_CHAINLOAD_TOOLCHAIN SDL2_BUNDLE_DIR; do
   if [[ -z "${!variable:-}" ]]; then
@@ -15,6 +16,10 @@ for variable in CC CXX STAGING_DIR WEBOS_CHAINLOAD_TOOLCHAIN SDL2_BUNDLE_DIR; do
     exit 1
   fi
 done
+if [[ ! -x "$host_cmake" ]]; then
+  echo "Host CMake not found at $host_cmake" >&2
+  exit 1
+fi
 if [[ ! -f "$source_dir/CMakeLists.txt" ]]; then
   echo "ES-DE source not found at $source_dir" >&2
   exit 1
@@ -43,7 +48,7 @@ unset PKG_CONFIG_PATH
 rm -rf "$build_dir"
 mkdir -p "$build_dir"
 
-cmake -S "$source_dir" -B "$build_dir" -G Ninja \
+"$host_cmake" -S "$source_dir" -B "$build_dir" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_TOOLCHAIN_FILE="$vcpkg_root/scripts/buildsystems/vcpkg.cmake" \
   -DVCPKG_TARGET_TRIPLET="$triplet" \
@@ -68,7 +73,7 @@ cmake -S "$source_dir" -B "$build_dir" -G Ninja \
   -DSDL2_LIBRARY="$sdl_library" \
   -DSDL2_LIBRARIES="$sdl_library"
 
-cmake --build "$build_dir" --parallel "${JOBS:-$(getconf _NPROCESSORS_ONLN)}"
+"$host_cmake" --build "$build_dir" --parallel "${JOBS:-$(getconf _NPROCESSORS_ONLN)}"
 
 binary="$(find "$build_dir" -type f -name es-de -perm -111 -print -quit)"
 if [[ -z "$binary" ]]; then
