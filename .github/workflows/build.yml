@@ -1,5 +1,6 @@
 name: Build webOS IPK
 
+# A new push on the same ref replaces a stuck run through the concurrency group below.
 on:
   push:
     branches: [main]
