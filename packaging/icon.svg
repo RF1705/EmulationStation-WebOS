@@ -4,5 +4,5 @@
   <path d="M50 67v26M37 80h26" stroke="#20232a" stroke-width="9" stroke-linecap="round"/>
   <circle cx="108" cy="71" r="7" fill="#20232a"/>
   <circle cx="121" cy="88" r="7" fill="#20232a"/>
-  <text x="80" y="139" text-anchor="middle" fill="#f4f4f4" font-family="sans-serif" font-size="20" font-weight="700">ES-DE</text>
+  <text x="80" y="139" text-anchor="middle" fill="#f4f4f4" font-family="sans-serif" font-size="20" font-weight="700">ES</text>
 </svg>
