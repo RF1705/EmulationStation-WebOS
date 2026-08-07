@@ -1,28 +1,27 @@
-name: Build webOS IPK
+name: Build RetroPie EmulationStation webOS IPK
 
-# A new push on the same ref replaces a stuck run through the concurrency group below.
 on:
   push:
     branches: [main]
-    tags: ['esde_*_webos_*']
+    tags: ['emulationstation_*_webos_*']
   pull_request:
   workflow_dispatch:
     inputs:
-      esde_ref:
-        description: ES-DE tag, branch or commit
+      retropie_es_ref:
+        description: RetroPie EmulationStation commit
         required: true
-        default: v3.4.1
+        default: 1071b8358b316ebda837933150db949bda90495e
 
 permissions:
   contents: read
 
 concurrency:
-  group: esde-webos-${{ github.workflow }}-${{ github.ref }}
+  group: retropie-es-webos-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  ESDE_REF: ${{ inputs.esde_ref || 'v3.4.1' }}
-  WEBOS_PACKAGE_VERSION: 3.4.1
+  RETROPIE_ES_REF: ${{ inputs.retropie_es_ref || '1071b8358b316ebda837933150db949bda90495e' }}
+  WEBOS_PACKAGE_VERSION: 1.0.0
   WEBOS_BUILD_SUFFIX: webos0.1.0
   SDK_ARCHIVE: arm-webos-linux-gnueabi_sdk-buildroot-x86_64.tar.gz
   ARES_PACKAGE_URL: https://github.com/webosbrew/ares-cli-rs/releases/download/v0.2.0/ares-package_0.2.0-1_amd64.deb
@@ -42,11 +41,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check out ES-DE
+      - name: Check out pinned RetroPie EmulationStation
         run: |
-          git clone --filter=blob:none --depth 1 --branch "$ESDE_REF" \
-            https://gitlab.com/es-de/emulationstation-de.git upstream
-          git -C upstream rev-parse HEAD
+          git init upstream
+          git -C upstream remote add origin https://github.com/RetroPie/EmulationStation.git
+          git -C upstream fetch --depth 1 origin "$RETROPIE_ES_REF"
+          git -C upstream checkout --detach FETCH_HEAD
+          git -C upstream submodule update --init --recursive --depth 1
+          test "$(git -C upstream rev-parse HEAD)" = "$RETROPIE_ES_REF"
 
       - name: Check out pinned vcpkg
         uses: actions/checkout@v4
@@ -59,15 +61,12 @@ jobs:
       - name: Validate scripts
         run: |
           bash -n scripts/*.sh
-          python3 -m py_compile scripts/patch-esde-webos.py
+          python3 -m py_compile scripts/patch-retropie-webos.py
 
       - name: Restore prepared dependencies
-        id: dependency-cache
         uses: actions/cache/restore@v4
         with:
-          path: |
-            build/webos-deps
-            vcpkg/installed
+          path: vcpkg/installed
           key: ${{ needs.dependencies.outputs.cache_key }}
           fail-on-cache-miss: true
 
@@ -93,7 +92,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            build-essential cmake gettext librsvg2-bin ninja-build pkg-config \
+            build-essential cmake librsvg2-bin ninja-build pkg-config \
             python3-jinja2 unzip xz-utils zip \
             "$RUNNER_TEMP/downloads/ares-package.deb"
           mkdir -p "$RUNNER_TEMP/webos-ndk" "$RUNNER_TEMP/sdl2"
@@ -111,27 +110,26 @@ jobs:
           bash scripts/create-toolchain.sh
           echo "WEBOS_CHAINLOAD_TOOLCHAIN=$WEBOS_CHAINLOAD_TOOLCHAIN" >> "$GITHUB_ENV"
           echo "SDL2_BUNDLE_DIR=$RUNNER_TEMP/sdl2" >> "$GITHUB_ENV"
-          echo "WEBOS_DEPS_PREFIX=$GITHUB_WORKSPACE/build/webos-deps" >> "$GITHUB_ENV"
           echo "VCPKG_ROOT=$GITHUB_WORKSPACE/vcpkg" >> "$GITHUB_ENV"
 
-      - name: Build ES-DE
+      - name: Build RetroPie EmulationStation
         run: |
           source "$RUNNER_TEMP/webos-ndk/environment-setup"
-          ESDE_SOURCE_DIR="$GITHUB_WORKSPACE/upstream" \
-            BUILD_DIR="$GITHUB_WORKSPACE/build/es-de" \
+          RETROPIE_ES_SOURCE_DIR="$GITHUB_WORKSPACE/upstream" \
+            BUILD_DIR="$GITHUB_WORKSPACE/build/emulationstation" \
             bash scripts/build-webos.sh
 
       - name: Package IPK
         run: |
           source "$RUNNER_TEMP/webos-ndk/environment-setup"
-          BUILD_DIR="$GITHUB_WORKSPACE/build/es-de" \
+          RETROPIE_ES_SOURCE_DIR="$GITHUB_WORKSPACE/upstream" \
             DIST_DIR="$GITHUB_WORKSPACE/dist" \
             bash scripts/package-webos.sh
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: esde-webos-${{ github.sha }}-arm
+          name: emulationstation-webos-${{ github.sha }}-arm
           path: |
             dist/*.ipk
             dist/*.sha256
@@ -139,7 +137,7 @@ jobs:
           retention-days: 14
 
   release:
-    if: github.ref_type == 'tag' && startsWith(github.ref_name, 'esde_')
+    if: github.ref_type == 'tag' && startsWith(github.ref_name, 'emulationstation_')
     needs: build
     runs-on: ubuntu-24.04
     permissions:
@@ -147,7 +145,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: esde-webos-${{ github.sha }}-arm
+          name: emulationstation-webos-${{ github.sha }}-arm
           path: release
       - name: Publish release
         env:
