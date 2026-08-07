@@ -33,7 +33,7 @@ cp -a "$installed"/. "$package_dir/"
 
 # ES-DE installs Linear, Modern and Slate on generic Unix targets. Linear is
 # the ES-DE 3.x default theme and is sufficient for first startup on webOS.
-# Keeping only it saves roughly 53 MiB of unpacked application data; users can
+# Keeping only it saves roughly 48 MiB of unpacked application data; users can
 # add other themes later through ES-DE's normal theme facilities.
 themes_dir="$package_dir/share/es-de/themes"
 [[ -d "$themes_dir/linear-es-de" ]] || { echo "Default Linear theme was not installed." >&2; exit 1; }
@@ -151,7 +151,19 @@ while (( queue_index < ${#queue[@]} )); do
   done < <("$readelf_cmd" -d "$elf" 2>/dev/null | sed -n 's/.*Shared library: \[\([^]]*\)\].*/\1/p')
 done
 
-find "$package_dir" -type f -perm -111 -exec "${STRIP:-strip}" {} + 2>/dev/null || true
+# Strip every packaged ELF, not only files with an executable permission bit.
+# Many shared libraries are installed mode 0644, so the old -perm -111 filter
+# left their symbol/debug tables untouched. --strip-unneeded keeps the dynamic
+# symbols required by the loader while dropping build/debug-only sections.
+strip_cmd="${STRIP:-strip}"
+stripped_count=0
+while IFS= read -r elf_file; do
+  if "$readelf_cmd" -h "$elf_file" >/dev/null 2>&1; then
+    "$strip_cmd" --strip-unneeded "$elf_file"
+    ((stripped_count += 1))
+  fi
+done < <(find "$package_dir" -type f -print)
+echo "Stripped ELF files: $stripped_count"
 
 echo "Packaged runtime libraries: ${#bundled_library[@]}"
 du -sh "$package_dir/lib" "$package_dir" || true
