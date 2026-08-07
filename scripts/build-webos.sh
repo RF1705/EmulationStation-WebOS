@@ -21,6 +21,7 @@ done
 python3 "$repo_root/scripts/patch-retropie-webos.py" "$source_dir"
 python3 "$repo_root/scripts/patch-retropie-webos-remote.py" "$source_dir"
 python3 "$repo_root/scripts/patch-retropie-webos-ui.py" "$source_dir"
+python3 "$repo_root/scripts/patch-retropie-webos-browser.py" "$source_dir"
 
 sdl_include="$(find "$SDL2_BUNDLE_DIR" -path '*/include/SDL2/SDL.h' -print -quit)"
 sdl_library="$(find "$SDL2_BUNDLE_DIR" -name 'libSDL2-2.0.so.0' -print -quit)"
