@@ -31,6 +31,16 @@ installed="$stage_dir$install_prefix"
 [[ -d "$installed" ]] || { echo "Installed ES-DE tree not found at $installed" >&2; exit 1; }
 cp -a "$installed"/. "$package_dir/"
 
+# ES-DE installs Linear, Modern and Slate on generic Unix targets. Linear is
+# the ES-DE 3.x default theme and is sufficient for first startup on webOS.
+# Keeping only it saves roughly 53 MiB of unpacked application data; users can
+# add other themes later through ES-DE's normal theme facilities.
+themes_dir="$package_dir/share/es-de/themes"
+[[ -d "$themes_dir/linear-es-de" ]] || { echo "Default Linear theme was not installed." >&2; exit 1; }
+rm -rf "$themes_dir/modern-es-de" "$themes_dir/slate-es-de"
+echo "Bundled webOS theme: linear-es-de"
+du -sh "$themes_dir" || true
+
 binary="$(find "$package_dir" -type f -name es-de -perm -111 -print -quit)"
 [[ -n "$binary" ]] || { echo "Installed ES-DE binary was not found." >&2; exit 1; }
 mv "$binary" "$package_dir/es-de.bin"
