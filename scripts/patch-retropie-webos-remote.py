@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from pathlib import Path
+import re
 import sys
 
 if len(sys.argv) != 2:
@@ -24,19 +25,26 @@ for old, new in replacements.items():
         raise SystemExit(f"remote key mapping anchor not found: {old}")
     text = text.replace(old, new)
 
-# The webOS mapping declares mappedKey inside the SDL_KEYDOWN switch case.
-# Give that case its own scope so C++ can legally jump to later case labels.
-keydown_start = "\tcase SDL_KEYDOWN:\n\t\tint mappedKey = ev.key.keysym.sym;\n"
-keydown_scoped = "\tcase SDL_KEYDOWN:\n\t{\n\t\tint mappedKey = ev.key.keysym.sym;\n"
-if keydown_start not in text:
-    raise SystemExit("SDL_KEYDOWN scope anchor not found")
-text = text.replace(keydown_start, keydown_scoped, 1)
+# mappedKey is a local variable inside SDL_KEYDOWN. Give that switch case its
+# own scope so jumping to subsequent case labels is valid C++. Match only the
+# case labels themselves so this does not depend on upstream tabs/spaces.
+text, opened = re.subn(
+    r"(?m)^(\s*)case SDL_KEYDOWN:\s*$",
+    r"\1case SDL_KEYDOWN:\n\1{",
+    text,
+    count=1,
+)
+if opened != 1:
+    raise SystemExit("SDL_KEYDOWN case label not found")
 
-keyup_anchor = "\t\treturn true;\n\n\tcase SDL_KEYUP:\n\t{\n"
-keyup_scoped = "\t\treturn true;\n\t}\n\n\tcase SDL_KEYUP:\n\t{\n"
-if keyup_anchor not in text:
-    raise SystemExit("SDL_KEYUP scope anchor not found")
-text = text.replace(keyup_anchor, keyup_scoped, 1)
+text, closed = re.subn(
+    r"(?m)^(\s*)case SDL_KEYUP:\s*$",
+    r"\1}\n\n\1case SDL_KEYUP:",
+    text,
+    count=1,
+)
+if closed != 1:
+    raise SystemExit("SDL_KEYUP case label not found")
 
 path.write_text(text)
 print("Applied verified LG Magic Remote colour keycodes and switch scoping")
