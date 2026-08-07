@@ -68,8 +68,8 @@ for path in (volume_h, volume_cpp):
 
 # A TV app must be usable before a controller has been configured. On webOS,
 # fall back to RetroPie's own keyboard defaults immediately. SDL-webOS exposes
-# the remote directional/OK keys as keyboard input; left/right pointer clicks
-# and the wheel are additionally translated into the same navigation inputs.
+# the remote directional/OK keys as keyboard input; pointer clicks and the wheel
+# are additionally translated into the same navigation inputs.
 text = input_manager.read_text()
 keyboard_anchor = (
     '\tmKeyboardInputConfig = new InputConfig(DEVICE_KEYBOARD, "Keyboard", KEYBOARD_GUID_STRING);\n'
@@ -117,6 +117,53 @@ mouse_cases = r'''
 if mouse_anchor not in text:
     raise SystemExit("could not find SDL keyboard event anchor")
 text = text.replace(mouse_anchor, mouse_cases + mouse_anchor, 1)
+
+# webOS reserves its physical Back button before native SDL applications can
+# reliably consume it. Translate buttons that do reach native apps into the
+# standard RetroPie keyboard defaults. Numeric keys are present on many Magic
+# Remotes; the official webOS color keycodes are useful on models exposing them.
+keydown_anchor = (
+    '\t\twindow->input(getInputConfigByDevice(DEVICE_KEYBOARD), '
+    'Input(DEVICE_KEYBOARD, TYPE_KEY, ev.key.keysym.sym, 1, false));\n'
+    '\t\treturn true;\n\n'
+    '\tcase SDL_KEYUP:\n'
+    '\t\twindow->input(getInputConfigByDevice(DEVICE_KEYBOARD), '
+    'Input(DEVICE_KEYBOARD, TYPE_KEY, ev.key.keysym.sym, 0, false));\n'
+    '\t\treturn true;\n'
+)
+keydown_replacement = r'''		int mappedKey = ev.key.keysym.sym;
+#ifdef WEBOS
+		// 0 / red / Back -> B (Escape)
+		if(mappedKey == SDLK_0 || mappedKey == 403 || mappedKey == 461)
+			mappedKey = SDLK_ESCAPE;
+		// 1 / green -> Start (F1), opens the EmulationStation menu
+		else if(mappedKey == SDLK_1 || mappedKey == 404)
+			mappedKey = SDLK_F1;
+		// 2 / yellow -> Select (F2)
+		else if(mappedKey == SDLK_2 || mappedKey == 405)
+			mappedKey = SDLK_F2;
+#endif
+		window->input(getInputConfigByDevice(DEVICE_KEYBOARD), Input(DEVICE_KEYBOARD, TYPE_KEY, mappedKey, 1, false));
+		return true;
+
+	case SDL_KEYUP:
+	{
+		int mappedKey = ev.key.keysym.sym;
+#ifdef WEBOS
+		if(mappedKey == SDLK_0 || mappedKey == 403 || mappedKey == 461)
+			mappedKey = SDLK_ESCAPE;
+		else if(mappedKey == SDLK_1 || mappedKey == 404)
+			mappedKey = SDLK_F1;
+		else if(mappedKey == SDLK_2 || mappedKey == 405)
+			mappedKey = SDLK_F2;
+#endif
+		window->input(getInputConfigByDevice(DEVICE_KEYBOARD), Input(DEVICE_KEYBOARD, TYPE_KEY, mappedKey, 0, false));
+		return true;
+	}
+'''
+if keydown_anchor not in text:
+    raise SystemExit("could not find keyboard forwarding anchor")
+text = text.replace(keydown_anchor, keydown_replacement, 1)
 input_manager.write_text(text)
 
 # RetroPie normally enters the controller detection wizard unless an input file
