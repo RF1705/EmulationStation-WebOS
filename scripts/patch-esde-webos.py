@@ -44,6 +44,16 @@ def main() -> None:
         "webOS port: BlueZ is not available on LG webOS",
     )
 
+    poppler_cmake = source / "CMake" / "Packages" / "FindPoppler.cmake"
+    if not poppler_cmake.is_file():
+        raise SystemExit(f"ES-DE FindPoppler.cmake not found below {source}")
+    replace_once(
+        poppler_cmake,
+        'GET_PREREQUISITES("${POPPLER_LIBRARY}" POPPLER_PREREQS 1 0 "" "")',
+        'if(WEBOS)\n        set(POPPLER_PREREQS "fontconfig") # webOS port: host ldd cannot inspect ARM libraries\n      else()\n        GET_PREREQUISITES("${POPPLER_LIBRARY}" POPPLER_PREREQS 1 0 "" "")\n      endif()',
+        "webOS port: host ldd cannot inspect ARM libraries",
+    )
+
     print(f"Applied webOS build adjustments to {source}")
 
 if __name__ == "__main__":
