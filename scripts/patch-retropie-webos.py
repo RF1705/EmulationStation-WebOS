@@ -9,9 +9,11 @@ root = Path(sys.argv[1]).resolve()
 cmake = root / "CMakeLists.txt"
 volume_h = root / "es-app/src/VolumeControl.h"
 volume_cpp = root / "es-app/src/VolumeControl.cpp"
+main_cpp = root / "es-app/src/main.cpp"
+input_manager = root / "es-core/src/InputManager.cpp"
 vlc_cpp = root / "es-core/src/components/VideoVlcComponent.cpp"
 
-for path in (cmake, volume_h, volume_cpp, vlc_cpp):
+for path in (cmake, volume_h, volume_cpp, main_cpp, input_manager, vlc_cpp):
     if not path.is_file():
         raise SystemExit(f"missing upstream file: {path}")
 
@@ -63,6 +65,79 @@ for path in (volume_h, volume_cpp):
         "defined(__linux__) && !defined(WEBOS)",
     )
     path.write_text(text)
+
+# A TV app must be usable before a controller has been configured. On webOS,
+# fall back to RetroPie's own keyboard defaults immediately. SDL-webOS exposes
+# the remote directional/OK keys as keyboard input; left/right pointer clicks
+# and the wheel are additionally translated into the same navigation inputs.
+text = input_manager.read_text()
+keyboard_anchor = (
+    '\tmKeyboardInputConfig = new InputConfig(DEVICE_KEYBOARD, "Keyboard", KEYBOARD_GUID_STRING);\n'
+    '\tloadInputConfig(mKeyboardInputConfig);\n'
+)
+keyboard_replacement = (
+    '\tmKeyboardInputConfig = new InputConfig(DEVICE_KEYBOARD, "Keyboard", KEYBOARD_GUID_STRING);\n'
+    '#ifdef WEBOS\n'
+    '\tif(!loadInputConfig(mKeyboardInputConfig))\n'
+    '\t\tloadDefaultKBConfig();\n'
+    '#else\n'
+    '\tloadInputConfig(mKeyboardInputConfig);\n'
+    '#endif\n'
+)
+if keyboard_anchor not in text:
+    raise SystemExit("could not find keyboard configuration anchor")
+text = text.replace(keyboard_anchor, keyboard_replacement, 1)
+
+mouse_anchor = '\tcase SDL_KEYDOWN:\n'
+mouse_cases = r'''
+#ifdef WEBOS
+	case SDL_MOUSEBUTTONDOWN:
+	case SDL_MOUSEBUTTONUP:
+		if(ev.button.button == SDL_BUTTON_LEFT || ev.button.button == SDL_BUTTON_RIGHT)
+		{
+			const int key = ev.button.button == SDL_BUTTON_LEFT ? SDLK_RETURN : SDLK_ESCAPE;
+			window->input(getInputConfigByDevice(DEVICE_KEYBOARD),
+				Input(DEVICE_KEYBOARD, TYPE_KEY, key, ev.button.state == SDL_PRESSED, false));
+			return true;
+		}
+		return false;
+
+	case SDL_MOUSEWHEEL:
+		if(ev.wheel.y != 0)
+		{
+			const int key = ev.wheel.y > 0 ? SDLK_UP : SDLK_DOWN;
+			window->input(getInputConfigByDevice(DEVICE_KEYBOARD), Input(DEVICE_KEYBOARD, TYPE_KEY, key, 1, false));
+			window->input(getInputConfigByDevice(DEVICE_KEYBOARD), Input(DEVICE_KEYBOARD, TYPE_KEY, key, 0, false));
+			return true;
+		}
+		return false;
+#endif
+
+'''
+if mouse_anchor not in text:
+    raise SystemExit("could not find SDL keyboard event anchor")
+text = text.replace(mouse_anchor, mouse_cases + mouse_anchor, 1)
+input_manager.write_text(text)
+
+# RetroPie normally enters the controller detection wizard unless an input file
+# already exists on disk. The webOS in-memory fallback above is intentionally a
+# valid first-run configuration, so allow it to proceed directly to the UI.
+text = main_cpp.read_text()
+input_check = (
+    '\t\tif(Utils::FileSystem::exists(InputManager::getConfigPath()) && '
+    'InputManager::getInstance()->getNumConfiguredDevices() > 0)\n'
+)
+input_check_replacement = (
+    '#ifdef WEBOS\n'
+    '\t\tif(InputManager::getInstance()->getNumConfiguredDevices() > 0)\n'
+    '#else\n'
+    + input_check +
+    '#endif\n'
+)
+if input_check not in text:
+    raise SystemExit("could not find first-run input configuration check")
+text = text.replace(input_check, input_check_replacement, 1)
+main_cpp.write_text(text)
 
 # RetroPie normally makes libVLC mandatory for video previews. A TV launcher
 # does not need to drag an entire media stack into the IPK just to render the
