@@ -41,9 +41,10 @@ sdl_include="$(dirname "$sdl_include")"
 
 vcpkg_prefix="$vcpkg_root/installed/$triplet"
 freeimage_include="$vcpkg_prefix/include"
-freeimage_library="$(find "$vcpkg_prefix/lib" -maxdepth 1 -type f \( -name 'libfreeimage.so' -o -name 'libfreeimage.a' \) -print -quit)"
+freeimage_library="$(find "$vcpkg_prefix/lib" -maxdepth 1 \( -name 'libFreeImage.so' -o -name 'libFreeImage.so.*' -o -name 'libFreeImage.a' \) -print -quit)"
 if [[ ! -f "$freeimage_include/FreeImage.h" || -z "$freeimage_library" ]]; then
   echo "FreeImage headers or library were not found below $vcpkg_prefix" >&2
+  find "$vcpkg_prefix" -maxdepth 3 -iname '*freeimage*' -print || true
   exit 1
 fi
 
