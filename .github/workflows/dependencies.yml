@@ -1,4 +1,4 @@
-name: Prepare webOS dependencies
+name: Prepare RetroPie webOS dependencies
 
 on:
   workflow_call:
@@ -29,15 +29,13 @@ jobs:
         id: dependency-key
         run: |
           dependency_hash="${{ hashFiles(
-            'scripts/build-system-dependencies.sh',
             'scripts/build-vcpkg-dependencies.sh',
             'scripts/create-toolchain.sh',
             'cmake/*.cmake.in',
             'vcpkg-triplets/*.cmake',
-            'vcpkg-ports/**',
             '.github/workflows/dependencies.yml'
           ) }}"
-          cache_key="esde-webos-deps-${RUNNER_OS}-${SDK_ARCHIVE}-${VCPKG_REF}-${dependency_hash}"
+          cache_key="retropie-es-webos-deps-${RUNNER_OS}-${SDK_ARCHIVE}-${VCPKG_REF}-${dependency_hash}"
           echo "cache_key=$cache_key" >> "$GITHUB_OUTPUT"
           echo "Dependency cache key: $cache_key"
 
@@ -45,9 +43,7 @@ jobs:
         id: dependency-cache
         uses: actions/cache/restore@v4
         with:
-          path: |
-            build/webos-deps
-            vcpkg/installed
+          path: vcpkg/installed
           key: ${{ steps.dependency-key.outputs.cache_key }}
           lookup-only: true
 
@@ -62,7 +58,7 @@ jobs:
 
       - name: Validate dependency scripts
         if: steps.dependency-cache.outputs.cache-hit != 'true'
-        run: bash -n scripts/build-system-dependencies.sh scripts/build-vcpkg-dependencies.sh scripts/create-toolchain.sh
+        run: bash -n scripts/build-vcpkg-dependencies.sh scripts/create-toolchain.sh
 
       - name: Download webOS SDK
         if: steps.dependency-cache.outputs.cache-hit != 'true'
@@ -96,7 +92,6 @@ jobs:
           export WEBOS_CHAINLOAD_TOOLCHAIN="$GITHUB_WORKSPACE/build/webos-chainload.cmake"
           bash scripts/create-toolchain.sh
           echo "WEBOS_CHAINLOAD_TOOLCHAIN=$WEBOS_CHAINLOAD_TOOLCHAIN" >> "$GITHUB_ENV"
-          echo "WEBOS_DEPS_PREFIX=$GITHUB_WORKSPACE/build/webos-deps" >> "$GITHUB_ENV"
           echo "VCPKG_ROOT=$GITHUB_WORKSPACE/vcpkg" >> "$GITHUB_ENV"
 
       - name: Build dependencies
@@ -104,14 +99,11 @@ jobs:
         run: |
           ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
           source "$RUNNER_TEMP/webos-ndk/environment-setup"
-          bash scripts/build-system-dependencies.sh
           bash scripts/build-vcpkg-dependencies.sh
 
       - name: Save prepared dependency tree
         if: steps.dependency-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
-          path: |
-            build/webos-deps
-            vcpkg/installed
+          path: vcpkg/installed
           key: ${{ steps.dependency-key.outputs.cache_key }}
