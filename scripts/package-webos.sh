@@ -31,15 +31,31 @@ installed="$stage_dir$install_prefix"
 [[ -d "$installed" ]] || { echo "Installed ES-DE tree not found at $installed" >&2; exit 1; }
 cp -a "$installed"/. "$package_dir/"
 
+# ES-DE normally resolves resources and themes from CMAKE_INSTALL_PREFIX.
+# Developer-mode webOS apps are physically installed below /media/developer/apps,
+# so that compiled prefix does not point at the real files. Put both directories
+# next to the executable; this is another documented ES-DE lookup location and
+# works independently of the webOS install base path.
+resources_source="$package_dir/share/es-de/resources"
+themes_source="$package_dir/share/es-de/themes"
+[[ -d "$resources_source" ]] || { echo "ES-DE resources were not installed." >&2; exit 1; }
+[[ -d "$themes_source/linear-es-de" ]] || { echo "Default Linear theme was not installed." >&2; exit 1; }
+
 # ES-DE installs Linear, Modern and Slate on generic Unix targets. Linear is
 # the ES-DE 3.x default theme and is sufficient for first startup on webOS.
-# Keeping only it saves roughly 48 MiB of unpacked application data; users can
-# add other themes later through ES-DE's normal theme facilities.
-themes_dir="$package_dir/share/es-de/themes"
-[[ -d "$themes_dir/linear-es-de" ]] || { echo "Default Linear theme was not installed." >&2; exit 1; }
-rm -rf "$themes_dir/modern-es-de" "$themes_dir/slate-es-de"
-echo "Bundled webOS theme: linear-es-de"
-du -sh "$themes_dir" || true
+rm -rf "$themes_source/modern-es-de" "$themes_source/slate-es-de"
+
+rm -rf "$package_dir/resources" "$package_dir/themes"
+mv "$resources_source" "$package_dir/resources"
+mv "$themes_source" "$package_dir/themes"
+
+# en_US is ES-DE's mandatory fallback locale. Fail packaging instead of creating
+# an IPK that installs successfully but immediately aborts during startup.
+locale_catalog="$package_dir/resources/locale/en_US/LC_MESSAGES/en_US.mo"
+[[ -f "$locale_catalog" ]] || { echo "Required ES-DE locale catalog missing: $locale_catalog" >&2; exit 1; }
+
+echo "Bundled executable-relative ES-DE resources and Linear theme"
+du -sh "$package_dir/resources" "$package_dir/themes" || true
 
 binary="$(find "$package_dir" -type f -name es-de -perm -111 -print -quit)"
 [[ -n "$binary" ]] || { echo "Installed ES-DE binary was not found." >&2; exit 1; }
