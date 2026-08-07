@@ -48,6 +48,18 @@ if [[ ! -f "$freeimage_include/FreeImage.h" || -z "$freeimage_library" ]]; then
   exit 1
 fi
 
+# vcpkg deliberately installs the non-thread-safe LibRaw shared library below
+# lib/manual-link. FreeImage depends on that exact libraw.so, so the cross-linker
+# needs the directory as an rpath-link search location.
+libraw_library="$(find "$vcpkg_prefix/lib" -maxdepth 2 \( -name 'libraw.so' -o -name 'libraw.so.*' \) -print -quit)"
+if [[ -z "$libraw_library" ]]; then
+  echo "LibRaw shared library was not found below $vcpkg_prefix/lib" >&2
+  find "$vcpkg_prefix/lib" -maxdepth 2 -iname '*raw*' -print || true
+  exit 1
+fi
+libraw_dir="$(dirname "$libraw_library")"
+echo "LibRaw linker search directory: $libraw_dir"
+
 export PKG_CONFIG_ALLOW_CROSS=1
 export PKG_CONFIG_SYSROOT_DIR=""
 export PKG_CONFIG_LIBDIR="$deps_prefix/lib/pkgconfig:$deps_prefix/share/pkgconfig:$vcpkg_prefix/lib/pkgconfig:$vcpkg_prefix/share/pkgconfig"
@@ -56,7 +68,7 @@ unset PKG_CONFIG_PATH
 rm -rf "$build_dir"
 mkdir -p "$build_dir"
 
-linker_search_flags="-Wl,-rpath-link,$vcpkg_prefix/lib -Wl,-rpath-link,$deps_prefix/lib -Wl,-rpath-link,$SDL2_BUNDLE_DIR/lib"
+linker_search_flags="-Wl,-rpath-link,$vcpkg_prefix/lib -Wl,-rpath-link,$libraw_dir -Wl,-rpath-link,$deps_prefix/lib -Wl,-rpath-link,$SDL2_BUNDLE_DIR/lib"
 
 "$host_cmake" -S "$source_dir" -B "$build_dir" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
