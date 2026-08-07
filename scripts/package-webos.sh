@@ -12,11 +12,13 @@ triplet="${VCPKG_TARGET_TRIPLET:-arm-webos}"
 install_prefix="${WEBOS_INSTALL_PREFIX:-/usr/palm/applications/com.rf1705.esde}"
 version="${WEBOS_PACKAGE_VERSION:-3.4.1}"
 host_cmake="${HOST_CMAKE:-/usr/bin/cmake}"
+readelf_cmd="${READELF:-readelf}"
 
 for command in ares-package rsvg-convert; do
   command -v "$command" >/dev/null 2>&1 || { echo "$command is required." >&2; exit 1; }
 done
 [[ -x "$host_cmake" ]] || { echo "Host CMake not found at $host_cmake" >&2; exit 1; }
+command -v "$readelf_cmd" >/dev/null 2>&1 || [[ -x "$readelf_cmd" ]] || { echo "readelf is required." >&2; exit 1; }
 for variable in CC STAGING_DIR SDL2_BUNDLE_DIR; do
   [[ -n "${!variable:-}" ]] || { echo "$variable is not set." >&2; exit 1; }
 done
@@ -37,26 +39,113 @@ mv "$binary" "$package_dir/es-de.bin"
 sed "s/@VERSION@/$version/g" "$repo_root/packaging/appinfo.json.in" > "$package_dir/appinfo.json"
 rsvg-convert -w 160 -h 160 "$repo_root/packaging/icon.svg" -o "$package_dir/icon160.png"
 
-copy_shared_libraries() {
-  local root="$1"
-  [[ -d "$root" ]] || return 0
-  while IFS= read -r library; do
-    cp -L "$library" "$package_dir/lib/$(basename "$library")"
-  done < <(find -L "$root" -maxdepth 3 -type f -name '*.so*' -print)
+# Bundle only the recursive DT_NEEDED closure required by the installed ELF
+# executables. The previous implementation copied every vcpkg .so and followed
+# symlink chains, turning aliases such as libicudata.so, libicudata.so.78 and
+# libicudata.so.78.3 into three full copies of the same library.
+vcpkg_lib="$vcpkg_root/installed/$triplet/lib"
+search_roots=(
+  "$deps_prefix/lib"
+  "$vcpkg_lib"
+  "$vcpkg_lib/manual-link"
+  "$SDL2_BUNDLE_DIR/lib"
+)
+
+declare -A processed_elf=()
+declare -A bundled_library=()
+queue=()
+
+is_system_library() {
+  case "$1" in
+    ld-linux*.so*|libc.so.*|libm.so.*|libdl.so.*|libpthread.so.*|librt.so.*|libresolv.so.*|libutil.so.*|libnsl.so.*|libcrypt.so.*|libbz2.so.*|libGLESv2.so*|libEGL.so*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
 }
-copy_shared_libraries "$deps_prefix/lib"
-copy_shared_libraries "$vcpkg_root/installed/$triplet/lib"
 
-sdl_library="$(find "$SDL2_BUNDLE_DIR" -name 'libSDL2-2.0.so.0' -print -quit)"
-[[ -n "$sdl_library" ]] || { echo "SDL-webOS runtime library was not found." >&2; exit 1; }
-cp -L "$sdl_library" "$package_dir/lib/libSDL2-2.0.so.0"
+resolve_library() {
+  local name="$1"
+  local root path
 
-for name in libstdc++.so.6 libatomic.so.1 libgcc_s.so.1; do
-  path="$(find "$STAGING_DIR" -name "$name" -print -quit)"
-  [[ -z "$path" ]] || cp -L "$path" "$package_dir/lib/$name"
+  if [[ -e "$package_dir/lib/$name" ]]; then
+    printf '%s\n' "$package_dir/lib/$name"
+    return 0
+  fi
+
+  for root in "${search_roots[@]}"; do
+    [[ -d "$root" ]] || continue
+    path="$(find "$root" -maxdepth 3 -name "$name" -print -quit)"
+    if [[ -n "$path" ]]; then
+      printf '%s\n' "$path"
+      return 0
+    fi
+  done
+
+  # C++/GCC runtime libraries come from the webOS SDK rather than vcpkg.
+  case "$name" in
+    libstdc++.so.*|libgcc_s.so.*|libatomic.so.*)
+      path="$(find "$STAGING_DIR" -name "$name" -print -quit)"
+      if [[ -n "$path" ]]; then
+        printf '%s\n' "$path"
+        return 0
+      fi
+      ;;
+  esac
+
+  return 1
+}
+
+enqueue_elf() {
+  local path="$1"
+  [[ -f "$path" ]] || return 0
+  if "$readelf_cmd" -h "$path" >/dev/null 2>&1; then
+    queue+=("$path")
+  fi
+}
+
+# Seed the dependency walk with every installed executable/helper ELF.
+while IFS= read -r executable; do
+  enqueue_elf "$executable"
+done < <(find "$package_dir" -type f -perm -111 -print)
+
+queue_index=0
+while (( queue_index < ${#queue[@]} )); do
+  elf="${queue[$queue_index]}"
+  ((queue_index += 1))
+
+  [[ -z "${processed_elf[$elf]:-}" ]] || continue
+  processed_elf["$elf"]=1
+
+  while IFS= read -r needed; do
+    [[ -n "$needed" ]] || continue
+    is_system_library "$needed" && continue
+    [[ -z "${bundled_library[$needed]:-}" ]] || continue
+
+    if ! source_library="$(resolve_library "$needed")"; then
+      echo "Required runtime library $needed (needed by $elf) was not found." >&2
+      echo "Searched dependency roots:" >&2
+      printf '  %s\n' "${search_roots[@]}" >&2
+      exit 1
+    fi
+
+    destination="$package_dir/lib/$needed"
+    if [[ "$source_library" != "$destination" ]]; then
+      cp -L "$source_library" "$destination"
+    fi
+    bundled_library["$needed"]=1
+    echo "Bundled runtime library: $needed"
+    enqueue_elf "$destination"
+  done < <("$readelf_cmd" -d "$elf" 2>/dev/null | sed -n 's/.*Shared library: \[\([^]]*\)\].*/\1/p')
 done
 
 find "$package_dir" -type f -perm -111 -exec "${STRIP:-strip}" {} + 2>/dev/null || true
+
+echo "Packaged runtime libraries: ${#bundled_library[@]}"
+du -sh "$package_dir/lib" "$package_dir" || true
+
 (
   cd "$dist_dir"
   ares-package package
@@ -72,6 +161,8 @@ fi
 (
   cd "$(dirname "$ipk")"
   sha256sum "$(basename "$ipk")"
+  ls -lh "$(basename "$ipk")"
 ) > "$ipk.sha256"
 
+ls -lh "$ipk"
 echo "PACKAGE_PATH=$ipk"
