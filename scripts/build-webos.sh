@@ -56,6 +56,8 @@ unset PKG_CONFIG_PATH
 rm -rf "$build_dir"
 mkdir -p "$build_dir"
 
+linker_search_flags="-Wl,-rpath-link,$vcpkg_prefix/lib -Wl,-rpath-link,$deps_prefix/lib -Wl,-rpath-link,$SDL2_BUNDLE_DIR/lib"
+
 "$host_cmake" -S "$source_dir" -B "$build_dir" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_TOOLCHAIN_FILE="$vcpkg_root/scripts/buildsystems/vcpkg.cmake" \
@@ -65,7 +67,8 @@ mkdir -p "$build_dir"
   -DCMAKE_PREFIX_PATH="$deps_prefix;$vcpkg_prefix" \
   '-DCMAKE_INSTALL_RPATH=$ORIGIN/lib' \
   '-DCMAKE_BUILD_RPATH=$ORIGIN/lib' \
-  -DCMAKE_EXE_LINKER_FLAGS="${LDFLAGS:-} -Wl,--gc-sections" \
+  -DCMAKE_EXE_LINKER_FLAGS="${LDFLAGS:-} -Wl,--gc-sections $linker_search_flags" \
+  -DCMAKE_SHARED_LINKER_FLAGS="${LDFLAGS:-} $linker_search_flags" \
   -DCMAKE_C_FLAGS="${CFLAGS:-} -Os -ffunction-sections -fdata-sections -mcpu=cortex-a9 -mfloat-abi=softfp -mfpu=neon" \
   -DCMAKE_CXX_FLAGS="${CXXFLAGS:-} -Os -ffunction-sections -fdata-sections -mcpu=cortex-a9 -mfloat-abi=softfp -mfpu=neon" \
   -DGL=OFF \
