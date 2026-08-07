@@ -36,6 +36,23 @@ def main() -> None:
         project_anchor + "\n\nif(WEBOS)\n    add_compile_definitions(WEBOS)\n    message(STATUS \"-- Building for LG webOS\")\nendif() # webOS port",
         "-- Building for LG webOS",
     )
+
+    bluez_anchor = """if(CMAKE_SYSTEM_NAME MATCHES Linux)
+        find_package(ALSA REQUIRED)
+        find_package(Bluez REQUIRED)
+    endif()"""
+    replace_once(
+        cmake,
+        bluez_anchor,
+        """if(CMAKE_SYSTEM_NAME MATCHES Linux)
+        find_package(ALSA REQUIRED)
+        if(NOT WEBOS)
+            find_package(Bluez REQUIRED)
+        endif() # webOS port: BlueZ is not available on LG webOS
+    endif()""",
+        "webOS port: BlueZ is not available on LG webOS",
+    )
+
     print(f"Applied webOS build adjustments to {source}")
 
 if __name__ == "__main__":
