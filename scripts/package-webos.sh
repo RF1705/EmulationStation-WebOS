@@ -27,6 +27,7 @@ rm -rf "$dist_dir"
 mkdir -p "$package_dir/lib"
 cp "$binary" "$package_dir/emulationstation.bin"
 cp -a "$source_dir/resources" "$package_dir/resources"
+cp "$repo_root/packaging/es_systems.cfg" "$package_dir/default-es_systems.cfg"
 
 "$CC" -Os -s "$repo_root/packaging/launch-emulationstation.c" -o "$package_dir/emulationstation"
 sed "s/@VERSION@/$version/g" "$repo_root/packaging/appinfo.json.in" > "$package_dir/appinfo.json"
