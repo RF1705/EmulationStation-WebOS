@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+
 def replace_once(path: Path, old: str, new: str, marker: str) -> None:
     text = path.read_text(encoding="utf-8")
     if marker in text:
@@ -11,6 +12,7 @@ def replace_once(path: Path, old: str, new: str, marker: str) -> None:
     if old not in text:
         raise RuntimeError(f"Expected text not found in {path}: {old!r}")
     path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
 
 def main() -> None:
     parser = argparse.ArgumentParser()
@@ -54,7 +56,24 @@ def main() -> None:
         "webOS port: host ldd cannot inspect ARM libraries",
     )
 
+    system_status = source / "es-core" / "src" / "SystemStatus.cpp"
+    if not system_status.is_file():
+        raise SystemExit(f"ES-DE SystemStatus.cpp not found below {source}")
+    replace_once(
+        system_status,
+        "#if defined(__linux__) && !defined(__ANDROID__)\n#include <bluetooth/bluetooth.h>\n#include <bluetooth/hci.h>\n#include <bluetooth/hci_lib.h>\n#endif",
+        "#if defined(__linux__) && !defined(__ANDROID__) && !defined(WEBOS) // webOS port: no BlueZ headers\n#include <bluetooth/bluetooth.h>\n#include <bluetooth/hci.h>\n#include <bluetooth/hci_lib.h>\n#endif",
+        "webOS port: no BlueZ headers",
+    )
+    replace_once(
+        system_status,
+        "#elif defined(__linux__)\n    if (hci_get_route(nullptr) != -1)\n        hasBluetooth = true;",
+        "#elif defined(__linux__) && !defined(WEBOS) // webOS port: skip BlueZ status query\n    if (hci_get_route(nullptr) != -1)\n        hasBluetooth = true;",
+        "webOS port: skip BlueZ status query",
+    )
+
     print(f"Applied webOS build adjustments to {source}")
+
 
 if __name__ == "__main__":
     main()
