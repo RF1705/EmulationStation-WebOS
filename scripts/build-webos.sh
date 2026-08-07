@@ -101,12 +101,18 @@ linker_search_flags="-Wl,-rpath-link,$vcpkg_prefix/lib -Wl,-rpath-link,$libraw_d
 
 "$host_cmake" --build "$build_dir" --parallel "${JOBS:-$(getconf _NPROCESSORS_ONLN)}"
 
-binary="$(find "$build_dir" -type f -name es-de -perm -111 -print -quit)"
-if [[ -z "$binary" ]]; then
+# ES-DE overrides its runtime output directory and writes the executable into
+# the source checkout rather than the out-of-tree CMake build directory.
+binary="$source_dir/es-de"
+if [[ ! -x "$binary" ]]; then
+  binary="$(find "$source_dir" "$build_dir" -type f -name es-de -perm -111 -print -quit)"
+fi
+if [[ -z "$binary" || ! -x "$binary" ]]; then
   echo "ES-DE binary was not produced." >&2
   exit 1
 fi
 
+echo "ES-DE binary: $binary"
 "${STRIP:-strip}" "$binary" || true
 file "$binary"
 "${READELF:-readelf}" -d "$binary" | grep -E 'NEEDED|RPATH|RUNPATH' || true
