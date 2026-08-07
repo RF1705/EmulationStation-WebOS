@@ -13,6 +13,59 @@ static int ensure_directory(const char *path) {
     return -1;
 }
 
+static int file_contains(const char *path, const char *needle) {
+    FILE *file = fopen(path, "r");
+    if (file == NULL)
+        return 0;
+
+    char buffer[4096];
+    int found = 0;
+    while (fgets(buffer, sizeof(buffer), file) != NULL) {
+        if (strstr(buffer, needle) != NULL) {
+            found = 1;
+            break;
+        }
+    }
+    fclose(file);
+    return found;
+}
+
+static int copy_file(const char *source, const char *destination) {
+    int input = open(source, O_RDONLY);
+    if (input < 0)
+        return -1;
+
+    int output = open(destination, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (output < 0) {
+        close(input);
+        return -1;
+    }
+
+    char buffer[8192];
+    ssize_t bytes;
+    while ((bytes = read(input, buffer, sizeof(buffer))) > 0) {
+        ssize_t offset = 0;
+        while (offset < bytes) {
+            ssize_t written = write(output, buffer + offset, (size_t)(bytes - offset));
+            if (written < 0) {
+                close(input);
+                close(output);
+                return -1;
+            }
+            offset += written;
+        }
+    }
+
+    int saved_errno = errno;
+    close(input);
+    close(output);
+    if (bytes < 0) {
+        errno = saved_errno;
+        return -1;
+    }
+    return 0;
+}
+
 int main(int argc, char **argv) {
     char executable[PATH_MAX];
     ssize_t length = readlink("/proc/self/exe", executable, sizeof(executable) - 1);
@@ -56,6 +109,43 @@ int main(int argc, char **argv) {
         }
         setenv("HOME", fallback_home, 1);
         home = fallback_home;
+    }
+
+    char config_dir[PATH_MAX];
+    char bootstrap_dir[PATH_MAX];
+    char bootstrap_file[PATH_MAX];
+    char config_file[PATH_MAX];
+    char default_config[PATH_MAX];
+    if (snprintf(config_dir, sizeof(config_dir), "%s/.emulationstation", home) >= (int)sizeof(config_dir) ||
+        snprintf(bootstrap_dir, sizeof(bootstrap_dir), "%s/bootstrap", config_dir) >= (int)sizeof(bootstrap_dir) ||
+        snprintf(bootstrap_file, sizeof(bootstrap_file), "%s/Systeme-konfigurieren.webos", bootstrap_dir) >= (int)sizeof(bootstrap_file) ||
+        snprintf(config_file, sizeof(config_file), "%s/es_systems.cfg", config_dir) >= (int)sizeof(config_file) ||
+        snprintf(default_config, sizeof(default_config), "%s/default-es_systems.cfg", app_dir) >= (int)sizeof(default_config)) {
+        fputs("Configuration path is too long\n", stderr);
+        return 1;
+    }
+
+    if (ensure_directory(config_dir) < 0 || ensure_directory(bootstrap_dir) < 0) {
+        perror("mkdir EmulationStation config");
+        return 1;
+    }
+
+    if (access(bootstrap_file, F_OK) != 0) {
+        int marker = open(bootstrap_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (marker >= 0) {
+            const char text[] = "webOS bootstrap entry\n";
+            (void)write(marker, text, sizeof(text) - 1);
+            close(marker);
+        }
+    }
+
+    /* RetroPie writes its desktop NES example after a missing config. Replace
+       only that known generated example; never overwrite a user configuration. */
+    if (access(config_file, F_OK) != 0 || file_contains(config_file, "<path>~/roms/nes</path>")) {
+        if (copy_file(default_config, config_file) < 0) {
+            perror("copy default es_systems.cfg");
+            return 1;
+        }
     }
 
     chdir(app_dir);
