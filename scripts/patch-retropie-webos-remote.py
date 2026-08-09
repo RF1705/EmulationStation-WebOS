@@ -13,8 +13,8 @@ if not path.is_file():
 
 text = path.read_text()
 
-# SDL-webOS delivers the LG Back button through its dedicated scancode once the
-# application claims the key with SDL_WEBOS_ACCESS_POLICY_KEYS_BACK=true.
+# SDL-webOS delivers the LG Back and Home buttons through dedicated scancodes
+# once the application claims them with the corresponding access-policy hints.
 # Keep standard AC_BACK/keycode fallbacks as harmless compatibility paths.
 include_anchor = "#include <SDL.h>\n"
 include_addition = "#ifdef WEBOS\n#include <SDL_webOS.h>\n#endif\n"
@@ -26,10 +26,10 @@ if "#include <SDL_webOS.h>" not in text:
 replacements = {
     "mappedKey == SDLK_0 || mappedKey == 403 || mappedKey == 461":
         "ev.key.keysym.scancode == SDL_WEBOS_SCANCODE_BACK || ev.key.keysym.scancode == SDL_SCANCODE_AC_BACK || mappedKey == SDLK_AC_BACK || mappedKey == 461",
-    # Map the standard SDL Menu key from the Magic Remote to EmulationStation's
-    # Start action (F1). Keep numeric 1 / green as fallback shortcuts.
+    # Map the claimed webOS Home key to EmulationStation's Start action (F1).
+    # Keep the standard SDL Menu key and numeric 1 / green as fallbacks.
     "mappedKey == SDLK_1 || mappedKey == 404":
-        "mappedKey == SDLK_1 || ev.key.keysym.scancode == SDL_WEBOS_SCANCODE_GREEN || ev.key.keysym.scancode == SDL_SCANCODE_MENU",
+        "mappedKey == SDLK_1 || ev.key.keysym.scancode == SDL_WEBOS_SCANCODE_GREEN || ev.key.keysym.scancode == SDL_WEBOS_SCANCODE_HOME || ev.key.keysym.scancode == SDL_SCANCODE_MENU",
     "mappedKey == SDLK_2 || mappedKey == 405":
         "mappedKey == SDLK_2 || ev.key.keysym.scancode == SDL_WEBOS_SCANCODE_YELLOW",
 }
@@ -39,8 +39,8 @@ for old, new in replacements.items():
         raise SystemExit(f"remote key mapping anchor not found: {old}")
     text = text.replace(old, new)
 
-# Keep full SDL diagnostics for now so the first build with the access-policy
-# hint proves that Back arrives as a real keyboard event.
+# Keep full SDL diagnostics for now so Home and the other claimed shell keys can
+# be verified on the TV with their actual SDL event/scancode values.
 parse_anchor = (
     "bool InputManager::parseEvent(const SDL_Event& ev, Window* window)\n"
     "{\n"
@@ -101,4 +101,4 @@ if closed != 1:
     raise SystemExit("SDL_KEYUP case label not found")
 
 path.write_text(text)
-print("Applied webOS Back handling, Menu mapping, remote mappings and SDL event diagnostics")
+print("Applied webOS Back/Home handling, Menu mapping, remote mappings and SDL event diagnostics")
