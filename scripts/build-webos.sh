@@ -25,6 +25,7 @@ python3 "$repo_root/scripts/patch-retropie-webos-browser.py" "$source_dir"
 python3 "$repo_root/scripts/patch-retropie-webos-scraper.py" "$source_dir"
 python3 "$repo_root/scripts/patch-retropie-webos-theme-anchor.py" "$source_dir" prepare
 python3 "$repo_root/scripts/patch-retropie-webos-theme-manager.py" "$source_dir"
+python3 "$repo_root/scripts/patch-retropie-webos-theme-runtime.py" "$source_dir"
 python3 "$repo_root/scripts/patch-retropie-webos-theme-anchor.py" "$source_dir" restore
 
 # Runtime SDL comes from the small SDL-webOS ABI bundle. RetroArch's webOS build
