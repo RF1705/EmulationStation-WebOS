@@ -81,6 +81,7 @@ void Settings::setDefaults()
 	mBoolMap["WebOSSystemGBC"] = false;
 	mBoolMap["WebOSSystemGBA"] = false;
 	mBoolMap["WebOSSystemPSX"] = false;
+	mBoolMap["WebOSSystemOpenTTD"] = false;
 	mStringMap["WebOSPathScummVM"] = "/media/developer/network-storage/games/ScummVM";
 	mStringMap["WebOSPathNES"] = "/media/developer/network-storage/games/NES";
 	mStringMap["WebOSPathSNES"] = "/media/developer/network-storage/games/SNES";

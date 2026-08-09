@@ -21,6 +21,9 @@ struct SystemEnvironmentData
 	std::string mStartPath;
 	std::vector<std::string> mSearchExtensions;
 	std::string mLaunchCommand;
+#ifdef WEBOS
+	std::string mWebOSAppId;
+#endif
 	std::vector<PlatformIds::PlatformId> mPlatformIds;
 };
 
@@ -39,6 +42,10 @@ public:
 	inline SystemEnvironmentData* getSystemEnvData() const { return mEnvData; }
 	inline const std::vector<PlatformIds::PlatformId>& getPlatformIds() const { return mEnvData->mPlatformIds; }
 	inline bool hasPlatformId(PlatformIds::PlatformId id) { if (!mEnvData) return false; return std::find(mEnvData->mPlatformIds.cbegin(), mEnvData->mPlatformIds.cend(), id) != mEnvData->mPlatformIds.cend(); }
+#ifdef WEBOS
+	inline bool isWebOSExternalApp() const { return mEnvData && !mEnvData->mWebOSAppId.empty(); }
+	inline const std::string& getWebOSAppId() const { return mEnvData->mWebOSAppId; }
+#endif
 
 	inline const std::shared_ptr<ThemeData>& getTheme() const { return mTheme; }
 

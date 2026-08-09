@@ -11,6 +11,23 @@
 #include "Window.h"
 #include "platform.h"
 #include "WebOSLocalization.h"
+#ifdef WEBOS
+#include <cctype>
+#endif
+
+#ifdef WEBOS
+static bool launchWebOSApplication(const std::string& appId)
+{
+	if(appId.empty())
+		return false;
+	for(char ch : appId)
+		if(!(std::isalnum(static_cast<unsigned char>(ch)) || ch == '.' || ch == '-' || ch == '_'))
+			return false;
+
+	const std::string command = "luna-send -n 1 -f luna://com.webos.applicationManager/launch '{\"id\":\"" + appId + "\"}' >/dev/null 2>&1";
+	return runSystemCommand(command) == 0;
+}
+#endif
 
 // buffer values for scrolling velocity (left, stopped, right)
 const int logoBuffersLeft[] = { -5, -2, -1 };
@@ -199,6 +216,14 @@ bool SystemView::input(InputConfig* config, Input input)
 		if(config->isMappedTo("a", input))
 		{
 			stopScrolling();
+#ifdef WEBOS
+			if(getSelected()->isWebOSExternalApp())
+			{
+				if(!launchWebOSApplication(getSelected()->getWebOSAppId()))
+					mWindow->pushGui(new GuiMsgBox(mWindow, webosTr("apps.launch_failed", "Could not launch the webOS application."), webosTr("common.ok", "OK")));
+				return true;
+			}
+#endif
 			ViewController::get()->goToGameList(getSelected());
 			return true;
 		}
@@ -276,6 +301,11 @@ void SystemView::onCursorChanged(const CursorState& /*state*/)
 	setAnimation(infoFadeOut, 0, [this, gameCount] {
 		std::stringstream ss;
 
+#ifdef WEBOS
+		if (getSelected()->isWebOSExternalApp())
+			ss << webosTr("system.webos_app", "WEBOS APP");
+		else
+#endif
 		if (!getSelected()->isGameSystem())
 			ss << "CONFIGURATION";
 		else

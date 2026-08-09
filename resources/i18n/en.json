@@ -1,4 +1,5 @@
 {
+  "apps.launch_failed": "Could not launch the webOS application.",
   "common.back": "back",
   "common.cancel": "CANCEL",
   "common.delete": "DELETE",
@@ -40,6 +41,7 @@
   "sound.navigation_sounds": "ENABLE NAVIGATION SOUNDS",
   "sound.system_volume": "SYSTEM VOLUME",
   "sound.video_audio": "ENABLE VIDEO AUDIO",
+  "system.webos_app": "WEBOS APP",
   "theme.delete_failed": "Theme could not be deleted.\n\n",
   "theme.delete_question": "Delete this theme?",
   "theme.deleted": "Theme deleted.",

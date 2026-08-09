@@ -34,15 +34,21 @@ SystemData::SystemData(const std::string& name, const std::string& fullName, Sys
 		mRootFolder = new FileData(FOLDER, mEnvData->mStartPath, mEnvData, this);
 		mRootFolder->metadata.set("name", mFullName);
 
-		if(!Settings::getInstance()->getBool("ParseGamelistOnly"))
-			populateFolder(mRootFolder);
+#ifdef WEBOS
+		if(!isWebOSExternalApp())
+		{
+#endif
+			if(!Settings::getInstance()->getBool("ParseGamelistOnly"))
+				populateFolder(mRootFolder);
 
-		if(!Settings::getInstance()->getBool("IgnoreGamelist"))
-			parseGamelist(this);
+			if(!Settings::getInstance()->getBool("IgnoreGamelist"))
+				parseGamelist(this);
 
-		mRootFolder->sort(FileSorts::SortTypes.at(0));
-
-		indexAllGameFilters(mRootFolder);
+			mRootFolder->sort(FileSorts::SortTypes.at(0));
+			indexAllGameFilters(mRootFolder);
+#ifdef WEBOS
+		}
+#endif
 	}
 	else
 	{
@@ -67,7 +73,11 @@ void SystemData::setIsGameSystemStatus()
 	// we exclude non-game systems from specific operations (i.e. the "RetroPie" system, at least)
 	// if/when there are more in the future, maybe this can be a more complex method, with a proper list
 	// but for now a simple string comparison is more performant
+#ifdef WEBOS
+	mIsGameSystem = (mName != "retropie" && !isWebOSExternalApp());
+#else
 	mIsGameSystem = (mName != "retropie");
+#endif
 }
 
 void SystemData::populateFolder(FileData* folder)
@@ -176,6 +186,9 @@ std::vector<std::string> readList(const std::string& str, const char* delims = "
 SystemData* SystemData::loadSystem(pugi::xml_node system)
 {
 	std::string name, fullname, path, cmd, themeFolder, defaultCore;
+#ifdef WEBOS
+	std::string webosAppId;
+#endif
 
 	name = system.child("name").text().get();
 #ifdef WEBOS
@@ -188,6 +201,9 @@ SystemData* SystemData::loadSystem(pugi::xml_node system)
 	fullname = system.child("fullname").text().get();
 	path = system.child("path").text().get();
 	defaultCore = system.child("defaultCore").text().get();
+#ifdef WEBOS
+	webosAppId = system.child("webosAppId").text().get();
+#endif
 
 	std::vector<std::string> list = readList(system.child("extension").text().get());
 	std::vector<std::string> extensions;
@@ -230,7 +246,25 @@ SystemData* SystemData::loadSystem(pugi::xml_node system)
 	// theme folder
 	themeFolder = system.child("theme").text().as_string(name.c_str());
 
-	//validate
+	// validate normal ROM systems and webOS external-app systems separately
+#ifdef WEBOS
+	const bool externalApp = !webosAppId.empty();
+	if(externalApp)
+	{
+		if(name.empty())
+		{
+			LOG(LogError) << "External webOS app system is missing a name!";
+			return nullptr;
+		}
+		if(path.empty())
+			path = Utils::FileSystem::getHomePath();
+		if(extensions.empty())
+			extensions.push_back(".webosapp");
+		if(cmd.empty())
+			cmd = "/bin/true";
+	}
+	else
+#endif
 	if (name.empty() || path.empty() || extensions.empty() || cmd.empty())
 	{
 		LOG(LogError) << "System \"" << name << "\" is missing name, path, extension, or command!";
@@ -252,10 +286,17 @@ SystemData* SystemData::loadSystem(pugi::xml_node system)
 	envData->mStartPath = path;
 	envData->mSearchExtensions = extensions;
 	envData->mLaunchCommand = cmd;
+#ifdef WEBOS
+	envData->mWebOSAppId = webosAppId;
+#endif
 	envData->mPlatformIds = platformIds;
 
 	SystemData* newSys = new SystemData(name, fullname, envData, themeFolder);
+#ifdef WEBOS
+	if (!newSys->isWebOSExternalApp() && newSys->getRootFolder()->getChildren().size() == 0)
+#else
 	if (newSys->getRootFolder()->getChildren().size() == 0)
+#endif
 	{
 		LOG(LogWarning) << "System \"" << name << "\" has no games! Ignoring it.";
 		delete newSys;
@@ -463,6 +504,10 @@ std::string SystemData::getConfigPath(bool forWrite)
 
 bool SystemData::isVisible()
 {
+#ifdef WEBOS
+   if(isWebOSExternalApp())
+       return true;
+#endif
    return (getDisplayedGameCount() > 0 ||
            (UIModeController::getInstance()->isUIModeFull() && mIsCollectionSystem) ||
            (mIsCollectionSystem && mName == "favorites"));
@@ -613,7 +658,11 @@ void SystemData::loadTheme()
 }
 
 void SystemData::writeMetaData() {
+#ifdef WEBOS
+	if(Settings::getInstance()->getBool("IgnoreGamelist") || mIsCollectionSystem || isWebOSExternalApp())
+#else
 	if(Settings::getInstance()->getBool("IgnoreGamelist") || mIsCollectionSystem)
+#endif
 		return;
 
 	//save changed game data back to xml

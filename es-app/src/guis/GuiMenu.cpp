@@ -42,6 +42,19 @@ struct WebOSSystemPreset
 	const char* theme;
 };
 
+struct WebOSExternalAppPreset
+{
+	const char* enabledKey;
+	const char* name;
+	const char* fullName;
+	const char* appId;
+	const char* theme;
+};
+
+static const WebOSExternalAppPreset sWebOSExternalAppPresets[] = {
+	{"WebOSSystemOpenTTD", "openttd", "OpenTTD", "com.leondrolio.x.openttd", "openttd"}
+};
+
 static const WebOSSystemPreset sWebOSSystemPresets[] = {
 	{"WebOSSystemScummVM", "WebOSPathScummVM", "scummvm", "ScummVM", ".svm .scummvm", "scummvm", "scummvm"},
 	{"WebOSSystemNES", "WebOSPathNES", "nes", "Nintendo Entertainment System", ".7z .fds .nes .zip", "nes", "nes"},
@@ -193,6 +206,18 @@ static bool saveWebOSSystemsConfig()
 		system.append_child("theme").text().set(preset.theme);
 	}
 
+	for(const auto& preset : sWebOSExternalAppPresets)
+	{
+		if(!settings->getBool(preset.enabledKey))
+			continue;
+
+		pugi::xml_node system = list.append_child("system");
+		system.append_child("name").text().set(preset.name);
+		system.append_child("fullname").text().set(preset.fullName);
+		system.append_child("webosAppId").text().set(preset.appId);
+		system.append_child("theme").text().set(preset.theme);
+	}
+
 	const std::string configPath = SystemData::getConfigPath(true);
 	Utils::FileSystem::createDirectory(Utils::FileSystem::getParent(configPath));
 	return doc.save_file(configPath.c_str(), "  ");
@@ -329,6 +354,18 @@ void GuiMenu::openWebOSGameSettings()
 		});
 		s->addRow(pathRow);
 
+		s->addSaveFunc([enabled, enabledKey] {
+			Settings::getInstance()->setBool(enabledKey, enabled->getState());
+		});
+	}
+
+	for(const auto& preset : sWebOSExternalAppPresets)
+	{
+		auto enabled = std::make_shared<SwitchComponent>(mWindow);
+		enabled->setState(settings->getBool(preset.enabledKey));
+		s->addWithLabel(std::string(preset.fullName) + " (webOS)", enabled);
+
+		const std::string enabledKey = preset.enabledKey;
 		s->addSaveFunc([enabled, enabledKey] {
 			Settings::getInstance()->setBool(enabledKey, enabled->getState());
 		});
