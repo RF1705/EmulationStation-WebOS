@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 import tempfile
 import zipfile
@@ -56,6 +57,18 @@ def add_overlay(archive_path: Path, overlay_path: Path) -> None:
                 raise SystemExit("Simple Dark overlay is incomplete: " + ", ".join(missing))
 
         os.replace(temporary_path, archive_path)
+
+        # resources/ is copied wholesale into the package before this runs.
+        # Remove that build-only copy after its contents have been embedded in
+        # simple-dark.zip, but never delete the repository's source overlay.
+        packaged_overlay_root = archive_path.parents[1] / "theme-overlays"
+        source_overlay_root = overlay_path.parent
+        if (
+            packaged_overlay_root.is_dir()
+            and packaged_overlay_root.resolve() != source_overlay_root.resolve()
+        ):
+            shutil.rmtree(packaged_overlay_root)
+
         print(f"Added {len(overlay_files)} Simple Dark overlay files from {overlay_path}")
     finally:
         if temporary_path.exists():
