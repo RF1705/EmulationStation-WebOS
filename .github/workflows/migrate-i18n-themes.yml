@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'scripts/migrate-i18n-themes.py'
+      - '.github/workflows/migrate-i18n-themes.yml'
   workflow_dispatch:
 
 permissions:
