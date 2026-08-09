@@ -29,10 +29,10 @@ replacements = {
     # Map the claimed webOS Home key to EmulationStation's Start action (F1).
     # HOME is defined by the SDL-webOS 2.30.x SDL_scancode.h as
     # SDL_SCANCODE_WEBOS_HOME, while the older extension header still uses
-    # SDL_WEBOS_SCANCODE_* names for Back/colour keys.
-    # Keep the standard SDL Menu key and numeric 1 / green as fallbacks.
+    # SDL_WEBOS_SCANCODE_* names for Back/colour keys. Keep green and the
+    # standard SDL Menu key as fallbacks, but no longer hijack numeric 1.
     "mappedKey == SDLK_1 || mappedKey == 404":
-        "mappedKey == SDLK_1 || ev.key.keysym.scancode == SDL_WEBOS_SCANCODE_GREEN || ev.key.keysym.scancode == SDL_SCANCODE_WEBOS_HOME || ev.key.keysym.scancode == SDL_SCANCODE_MENU",
+        "ev.key.keysym.scancode == SDL_WEBOS_SCANCODE_GREEN || ev.key.keysym.scancode == SDL_SCANCODE_WEBOS_HOME || ev.key.keysym.scancode == SDL_SCANCODE_MENU",
     "mappedKey == SDLK_2 || mappedKey == 405":
         "mappedKey == SDLK_2 || ev.key.keysym.scancode == SDL_WEBOS_SCANCODE_YELLOW",
 }
