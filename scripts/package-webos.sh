@@ -145,6 +145,9 @@ after = os.path.getsize(temporary_path)
 os.replace(temporary_path, destination_path)
 print(f"Bundled Simple Dark archive: {before} -> {after} bytes ({before - after} bytes saved)")
 PY
+  python3 "$repo_root/scripts/add-simple-dark-overlay.py" \
+    "$bundled_theme_package" \
+    "$repo_root/resources/theme-overlays/simple-dark"
 fi
 
 "$CC" -Os -s "$repo_root/packaging/launch-emulationstation.c" -o "$package_dir/emulationstation"
