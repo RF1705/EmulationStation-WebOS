@@ -21,6 +21,7 @@ done
 python3 "$repo_root/scripts/patch-retropie-webos.py" "$source_dir"
 python3 "$repo_root/scripts/patch-retropie-webos-remote.py" "$source_dir"
 python3 "$repo_root/scripts/patch-retropie-webos-ui.py" "$source_dir"
+python3 "$repo_root/scripts/patch-retropie-webos-quit.py" "$source_dir"
 python3 "$repo_root/scripts/patch-retropie-webos-browser.py" "$source_dir"
 python3 "$repo_root/scripts/patch-retropie-webos-scraper.py" "$source_dir"
 python3 "$repo_root/scripts/patch-retropie-webos-theme-anchor.py" "$source_dir" prepare
