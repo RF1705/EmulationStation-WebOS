@@ -4,10 +4,10 @@
 
     <view name="system">
         <image name="background" extra="true">
-            <path>./art/openttd_art_blur.svg</path>
+            <path>./art/openttd_background.png</path>
         </image>
         <image name="logo">
-            <path>./art/openttd.svg</path>
+            <path>./art/openttd.png</path>
         </image>
         <helpsystem name="help">
             <textColor>ffffff66</textColor>
@@ -27,7 +27,7 @@
             <alignment>right</alignment>
         </text>
         <image name="logo">
-            <path>./art/openttd.svg</path>
+            <path>./art/openttd.png</path>
             <pos>0.025 0.079</pos>
             <maxSize>0.47 0.1</maxSize>
             <origin>0 0.5</origin>
