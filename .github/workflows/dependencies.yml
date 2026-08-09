@@ -1,4 +1,4 @@
-name: Prepare RetroPie webOS dependencies
+name: Prepare EmulationStation WebOS dependencies
 
 on:
   workflow_call:
@@ -35,7 +35,7 @@ jobs:
             'vcpkg-triplets/*.cmake',
             '.github/workflows/dependencies.yml'
           ) }}"
-          cache_key="retropie-es-webos-deps-${RUNNER_OS}-${SDK_ARCHIVE}-${VCPKG_REF}-${dependency_hash}"
+          cache_key="emulationstation-webos-deps-${RUNNER_OS}-${SDK_ARCHIVE}-${VCPKG_REF}-${dependency_hash}"
           echo "cache_key=$cache_key" >> "$GITHUB_OUTPUT"
           echo "Dependency cache key: $cache_key"
 
