@@ -14,12 +14,13 @@ for path in (settings_cpp, gui_menu_cpp, screenscraper_cpp):
     if not path.is_file():
         raise SystemExit(f"missing upstream file: {path}")
 
-# Persist ScreenScraper language/region preferences. German/Germany are the
-# sensible defaults for the webOS port; ScreenScraper itself still falls back
-# to English/world data if localized metadata is unavailable.
+# Persist ScreenScraper language/region preferences. German language and the
+# European metadata region are the sensible defaults for this webOS port;
+# ScreenScraper still falls back to English/world data when localized metadata
+# is unavailable.
 text = settings_cpp.read_text()
 anchor = '\tmStringMap["WebOSLanguage"] = "de";\n'
-addition = '\tmStringMap["WebOSScraperLanguage"] = "de";\n\tmStringMap["WebOSScraperRegion"] = "de";\n'
+addition = '\tmStringMap["WebOSScraperLanguage"] = "de";\n\tmStringMap["WebOSScraperRegion"] = "eu";\n'
 if 'WebOSScraperLanguage' not in text:
     if anchor not in text:
         raise SystemExit("could not find webOS language settings anchor")
@@ -58,8 +59,7 @@ ui = r'''
 	auto scraper_region = std::make_shared<OptionListComponent<std::string>>(mWindow,
 		webosTr("SCRAPER REGION", "SCRAPER-REGION"), false);
 	const std::string currentRegion = Settings::getInstance()->getString("WebOSScraperRegion");
-	scraper_region->add(webosTr("Germany", "Deutschland"), "de", currentRegion == "de" || currentRegion.empty());
-	scraper_region->add(webosTr("Europe", "Europa"), "eu", currentRegion == "eu");
+	scraper_region->add(webosTr("Europe", "Europa"), "eu", currentRegion == "eu" || currentRegion.empty());
 	scraper_region->add("USA", "us", currentRegion == "us");
 	scraper_region->add(webosTr("Japan", "Japan"), "jp", currentRegion == "jp");
 	scraper_region->add(webosTr("World", "Welt"), "wor", currentRegion == "wor");
