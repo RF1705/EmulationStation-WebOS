@@ -27,13 +27,23 @@ python3 "$repo_root/scripts/patch-retropie-webos-theme-anchor.py" "$source_dir" 
 python3 "$repo_root/scripts/patch-retropie-webos-theme-manager.py" "$source_dir"
 python3 "$repo_root/scripts/patch-retropie-webos-theme-anchor.py" "$source_dir" restore
 
+# Runtime SDL comes from the small SDL-webOS ABI bundle. RetroArch's webOS build
+# gets the LG-specific extension header (SDL_webOS.h) from the NDK's SDL package,
+# so include that directory as well instead of expecting it in the ABI archive.
 sdl_include="$(find "$SDL2_BUNDLE_DIR" -path '*/include/SDL2/SDL.h' -print -quit)"
 sdl_library="$(find "$SDL2_BUNDLE_DIR" -name 'libSDL2-2.0.so.0' -print -quit)"
+webos_sdl_header="$(find "$STAGING_DIR" -path '*/include/SDL2/SDL_webOS.h' -print -quit)"
 if [[ -z "$sdl_include" || -z "$sdl_library" ]]; then
   echo "$SDL2_BUNDLE_DIR does not contain SDL-webOS headers and libraries." >&2
   exit 1
 fi
+if [[ -z "$webos_sdl_header" ]]; then
+  echo "SDL_webOS.h was not found in the webOS NDK below $STAGING_DIR." >&2
+  exit 1
+fi
 sdl_include="$(dirname "$sdl_include")"
+webos_sdl_include="$(dirname "$webos_sdl_header")"
+echo "SDL-webOS extension headers: $webos_sdl_include"
 
 vcpkg_prefix="$vcpkg_root/installed/$triplet"
 freeimage_include="$vcpkg_prefix/include"
@@ -63,8 +73,8 @@ linker_search_flags="-Wl,-rpath-link,$vcpkg_prefix/lib -Wl,-rpath-link,$vcpkg_pr
   -DCMAKE_PREFIX_PATH="$vcpkg_prefix" \
   '-DCMAKE_BUILD_RPATH=$ORIGIN/lib' \
   -DCMAKE_EXE_LINKER_FLAGS="${LDFLAGS:-} -Wl,--gc-sections $linker_search_flags" \
-  -DCMAKE_C_FLAGS="${CFLAGS:-} -Os -ffunction-sections -fdata-sections -mcpu=cortex-a9 -mfloat-abi=softfp -mfpu=neon" \
-  -DCMAKE_CXX_FLAGS="${CXXFLAGS:-} -Os -ffunction-sections -fdata-sections -mcpu=cortex-a9 -mfloat-abi=softfp -mfpu=neon" \
+  -DCMAKE_C_FLAGS="${CFLAGS:-} -I$webos_sdl_include -Os -ffunction-sections -fdata-sections -mcpu=cortex-a9 -mfloat-abi=softfp -mfpu=neon" \
+  -DCMAKE_CXX_FLAGS="${CXXFLAGS:-} -I$webos_sdl_include -Os -ffunction-sections -fdata-sections -mcpu=cortex-a9 -mfloat-abi=softfp -mfpu=neon" \
   -DGL=OFF \
   -DGLES=ON \
   -DWEBOS=ON \
@@ -77,7 +87,7 @@ linker_search_flags="-Wl,-rpath-link,$vcpkg_prefix/lib -Wl,-rpath-link,$vcpkg_pr
   -DRAPIDJSON_ROOT="$vcpkg_prefix" \
   -DRAPIDJSON_INCLUDE_DIRS="$vcpkg_prefix/include" \
   -DSDL2_INCLUDE_DIR="$sdl_include" \
-  -DSDL2_INCLUDE_DIRS="$sdl_include" \
+  -DSDL2_INCLUDE_DIRS="$sdl_include;$webos_sdl_include" \
   -DSDL2_LIBRARY="$sdl_library" \
   -DSDL2_LIBRARIES="$sdl_library"
 
