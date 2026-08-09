@@ -19,6 +19,9 @@
 #include "Settings.h"
 #include "SystemData.h"
 #include "SystemScreenSaver.h"
+#ifdef WEBOS
+#include "WebOSThemeManager.h"
+#endif
 #include "components/VideoVlcComponent.h"
 #include <SDL_events.h>
 #include <SDL_main.h>
@@ -353,6 +356,12 @@ int main(int argc, char* argv[])
 
 	//always close the log on exit
 	atexit(&onExit);
+
+#ifdef WEBOS
+	std::string bundledThemeError;
+	if(!webosEnsureBundledDefaultTheme(bundledThemeError))
+		LOG(LogWarning) << "Could not initialize bundled Simple Dark theme: " << bundledThemeError;
+#endif
 
 	Window window;
 	SystemScreenSaver screensaver(&window);

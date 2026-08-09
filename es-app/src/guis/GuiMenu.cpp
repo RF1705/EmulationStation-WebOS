@@ -13,9 +13,7 @@
 #include "utils/FileSystemUtil.h"
 #include "WebOSLocalization.h"
 #ifdef WEBOS
-#include <curl/curl.h>
-#include <zip.h>
-#include <cstdio>
+#include "WebOSThemeManager.h"
 #endif
 #include <pugixml.hpp>
 #include "views/UIModeController.h"
@@ -107,8 +105,8 @@ public:
 	std::vector<HelpPrompt> getHelpPrompts() override
 	{
 		std::vector<HelpPrompt> prompts;
-		prompts.push_back(HelpPrompt("a", webosTr("open", "öffnen")));
-		prompts.push_back(HelpPrompt("b", webosTr("back", "zurück")));
+		prompts.push_back(HelpPrompt("a", webosTr("common.open", "open")));
+		prompts.push_back(HelpPrompt("b", webosTr("common.back", "back")));
 		return prompts;
 	}
 
@@ -133,7 +131,7 @@ private:
 			mMenu.reset();
 		}
 
-		mMenu.reset(new MenuComponent(mWindow, webosTr("SELECT GAME FOLDER", "SPIELEORDNER WÄHLEN")));
+		mMenu.reset(new MenuComponent(mWindow, webosTr("games.select_folder", "SELECT GAME FOLDER")));
 		addChild(mMenu.get());
 
 		ComponentListRow currentRow;
@@ -155,8 +153,8 @@ private:
 		for(const std::string& directory : directories)
 			addDirectory(Utils::FileSystem::getFileName(directory), directory);
 
-		mMenu->addButton(webosTr("SELECT THIS FOLDER", "DIESEN ORDNER WÄHLEN"),
-			webosTr("use this directory", "diesen Ordner verwenden"), [this] {
+		mMenu->addButton(webosTr("games.select_this_folder", "SELECT THIS FOLDER"),
+			webosTr("games.use_this_directory", "use this directory"), [this] {
 				mCallback(mPath);
 				delete this;
 			});
@@ -201,247 +199,25 @@ static bool saveWebOSSystemsConfig()
 }
 #endif
 
-#ifdef WEBOS
-struct WebOSThemeEntry
-{
-	const char* displayName;
-	const char* folderName;
-	const char* archiveUrl;
-};
-
-// Pin theme archives to known upstream commits. Themes are downloaded only on
-// explicit user request and remain in ~/.emulationstation/themes across IPK updates.
-static const WebOSThemeEntry sWebOSThemes[] = {
-	{"Carbon", "carbon", "https://codeload.github.com/RetroPie/es-theme-carbon/zip/b09973e0b0c589cb11fe772c169a6ff5d588b390"},
-	{"Simple", "simple", "https://codeload.github.com/RetroPie/es-theme-simple/zip/5a6c1daf965b9d410398243c232a34911dad8826"},
-	{"Simple Dark", "simple-dark", "https://codeload.github.com/RetroPie/es-theme-simple-dark/zip/058472cfbc3b4fe9ddf1ab452908fab40e32d29c"},
-};
-
-static bool webosThemeInstalled(const WebOSThemeEntry& theme)
-{
-	return Utils::FileSystem::isDirectory(Utils::FileSystem::getHomePath() +
-		"/.emulationstation/themes/" + theme.folderName);
-}
-
-static bool webosDownloadFile(const std::string& url, const std::string& path, std::string& error)
-{
-	FILE* output = fopen(path.c_str(), "wb");
-	if(!output)
-	{
-		error = webosTr("Could not create temporary download file.", "Temporäre Download-Datei konnte nicht erstellt werden.");
-		return false;
-	}
-
-	CURL* curl = curl_easy_init();
-	if(!curl)
-	{
-		fclose(output);
-		error = webosTr("Could not initialize downloader.", "Downloader konnte nicht initialisiert werden.");
-		return false;
-	}
-
-	curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-	curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-	curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
-	curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
-	curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 20L);
-	curl_easy_setopt(curl, CURLOPT_TIMEOUT, 180L);
-	curl_easy_setopt(curl, CURLOPT_USERAGENT, "EmulationStation-webOS/1.0");
-	curl_easy_setopt(curl, CURLOPT_WRITEDATA, output);
-
-	const CURLcode result = curl_easy_perform(curl);
-	curl_easy_cleanup(curl);
-	fclose(output);
-
-	if(result != CURLE_OK)
-	{
-		Utils::FileSystem::removeFile(path);
-		error = std::string(webosTr("Download failed: ", "Download fehlgeschlagen: ")) + curl_easy_strerror(result);
-		return false;
-	}
-
-	return true;
-}
-
-static bool webosSafeArchivePath(const std::string& path)
-{
-	if(path.empty() || path[0] == '/' || path.find('\\') != std::string::npos)
-		return false;
-
-	size_t start = 0;
-	while(start <= path.size())
-	{
-		const size_t slash = path.find('/', start);
-		const std::string part = path.substr(start, slash == std::string::npos ? std::string::npos : slash - start);
-		if(part == "..")
-			return false;
-		if(slash == std::string::npos)
-			break;
-		start = slash + 1;
-	}
-	return true;
-}
-
-static bool webosExtractTheme(const std::string& archivePath, const WebOSThemeEntry& theme, std::string& error)
-{
-	int zipError = 0;
-	zip_t* archive = zip_open(archivePath.c_str(), ZIP_RDONLY, &zipError);
-	if(!archive)
-	{
-		error = webosTr("Theme archive could not be opened.", "Theme-Archiv konnte nicht geöffnet werden.");
-		return false;
-	}
-
-	const std::string themeRoot = Utils::FileSystem::getHomePath() + "/.emulationstation/themes";
-	const std::string destinationRoot = themeRoot + "/" + theme.folderName;
-	if(!Utils::FileSystem::createDirectory(destinationRoot))
-	{
-		zip_close(archive);
-		error = webosTr("Theme directory could not be created.", "Theme-Verzeichnis konnte nicht erstellt werden.");
-		return false;
-	}
-
-	const zip_int64_t entries = zip_get_num_entries(archive, 0);
-	zip_uint64_t totalSize = 0;
-	const zip_uint64_t maxEntrySize = 128ULL * 1024ULL * 1024ULL;
-	const zip_uint64_t maxTotalSize = 512ULL * 1024ULL * 1024ULL;
-
-	for(zip_uint64_t i = 0; i < (zip_uint64_t)entries; ++i)
-	{
-		const char* rawName = zip_get_name(archive, i, ZIP_FL_ENC_GUESS);
-		if(!rawName)
-			continue;
-
-		const std::string archiveName(rawName);
-		const size_t firstSlash = archiveName.find('/');
-		if(firstSlash == std::string::npos)
-			continue;
-
-		const std::string relative = archiveName.substr(firstSlash + 1);
-		if(relative.empty())
-			continue;
-		if(!webosSafeArchivePath(relative))
-		{
-			zip_close(archive);
-			error = webosTr("Unsafe path in theme archive.", "Unsicherer Pfad im Theme-Archiv.");
-			return false;
-		}
-
-		const std::string destination = destinationRoot + "/" + relative;
-		if(relative.back() == '/')
-			continue;
-
-		zip_stat_t stat;
-		zip_stat_init(&stat);
-		if(zip_stat_index(archive, i, 0, &stat) != 0 || stat.size > maxEntrySize)
-		{
-			zip_close(archive);
-			error = webosTr("Theme archive contains an invalid or oversized file.", "Theme-Archiv enthält eine ungültige oder zu große Datei.");
-			return false;
-		}
-		totalSize += stat.size;
-		if(totalSize > maxTotalSize)
-		{
-			zip_close(archive);
-			error = webosTr("Theme archive is too large.", "Theme-Archiv ist zu groß.");
-			return false;
-		}
-
-		const std::string parentDirectory = Utils::FileSystem::getParent(destination);
-		if(!Utils::FileSystem::createDirectory(parentDirectory))
-		{
-			zip_close(archive);
-			error = std::string(webosTr("Could not create theme directory: ", "Theme-Verzeichnis konnte nicht erstellt werden: ")) + parentDirectory;
-			LOG(LogError) << "webOS theme manager: mkdir failed: " << parentDirectory;
-			return false;
-		}
-
-		zip_file_t* input = zip_fopen_index(archive, i, 0);
-		if(!input)
-		{
-			zip_close(archive);
-			error = webosTr("Could not read a file from the theme archive.", "Datei im Theme-Archiv konnte nicht gelesen werden.");
-			return false;
-		}
-
-		FILE* output = fopen(destination.c_str(), "wb");
-		if(!output)
-		{
-			zip_fclose(input);
-			zip_close(archive);
-			error = webosTr("Could not write a theme file.", "Theme-Datei konnte nicht geschrieben werden.");
-			return false;
-		}
-
-		char buffer[32768];
-		zip_int64_t bytes = 0;
-		bool writeOk = true;
-		while((bytes = zip_fread(input, buffer, sizeof(buffer))) > 0)
-		{
-			if(fwrite(buffer, 1, (size_t)bytes, output) != (size_t)bytes)
-			{
-				writeOk = false;
-				break;
-			}
-		}
-		if(bytes < 0)
-			writeOk = false;
-
-		fclose(output);
-		zip_fclose(input);
-
-		if(!writeOk)
-		{
-			zip_close(archive);
-			error = webosTr("Could not extract the complete theme.", "Theme konnte nicht vollständig entpackt werden.");
-			return false;
-		}
-	}
-
-	zip_close(archive);
-	return true;
-}
-
-static bool webosInstallTheme(const WebOSThemeEntry& theme, std::string& error)
-{
-	const std::string configRoot = Utils::FileSystem::getHomePath() + "/.emulationstation";
-	const std::string themesRoot = configRoot + "/themes";
-	if(!Utils::FileSystem::createDirectory(themesRoot))
-	{
-		error = std::string(webosTr("Theme directory could not be created: ", "Theme-Verzeichnis konnte nicht erstellt werden: ")) + themesRoot;
-		LOG(LogError) << "webOS theme manager: mkdir failed: " << themesRoot;
-		return false;
-	}
-
-	const std::string archivePath = configRoot + "/theme-download.zip";
-	if(!webosDownloadFile(theme.archiveUrl, archivePath, error))
-		return false;
-
-	const bool extracted = webosExtractTheme(archivePath, theme, error);
-	Utils::FileSystem::removeFile(archivePath);
-	return extracted;
-}
-#endif
-
-GuiMenu::GuiMenu(Window* window) : GuiComponent(window), mMenu(window, webosTr("MAIN MENU", "HAUPTMENÜ")), mVersion(window)
+GuiMenu::GuiMenu(Window* window) : GuiComponent(window), mMenu(window, webosTr("menu.main", "MAIN MENU")), mVersion(window)
 {
 	bool isFullUI = UIModeController::getInstance()->isUIModeFull();
 
 	if (isFullUI) {
 #ifdef WEBOS
-		addEntry(webosTr("GAMES & SYSTEMS", "SPIELE & SYSTEME"), 0x777777FF, true, [this] { openWebOSGameSettings(); });
+		addEntry(webosTr("menu.games_systems", "GAMES & SYSTEMS"), 0x777777FF, true, [this] { openWebOSGameSettings(); });
 #endif
-		addEntry(webosTr("SCRAPER", "SPIELINFORMATIONEN"), 0x777777FF, true, [this] { openScraperSettings(); });
-		addEntry(webosTr("SOUND SETTINGS", "TONEINSTELLUNGEN"), 0x777777FF, true, [this] { openSoundSettings(); });
-		addEntry(webosTr("UI SETTINGS", "OBERFLÄCHE"), 0x777777FF, true, [this] { openUISettings(); });
-		addEntry(webosTr("GAME COLLECTION SETTINGS", "SPIELESAMMLUNGEN"), 0x777777FF, true, [this] { openCollectionSystemSettings(); });
-		addEntry(webosTr("OTHER SETTINGS", "WEITERE EINSTELLUNGEN"), 0x777777FF, true, [this] { openOtherSettings(); });
-		addEntry(webosTr("CONFIGURE INPUT", "STEUERUNG EINRICHTEN"), 0x777777FF, true, [this] { openConfigInput(); });
+		addEntry(webosTr("menu.scraper", "SCRAPER"), 0x777777FF, true, [this] { openScraperSettings(); });
+		addEntry(webosTr("menu.sound_settings", "SOUND SETTINGS"), 0x777777FF, true, [this] { openSoundSettings(); });
+		addEntry(webosTr("menu.ui_settings", "UI SETTINGS"), 0x777777FF, true, [this] { openUISettings(); });
+		addEntry(webosTr("menu.collections", "GAME COLLECTION SETTINGS"), 0x777777FF, true, [this] { openCollectionSystemSettings(); });
+		addEntry(webosTr("menu.other_settings", "OTHER SETTINGS"), 0x777777FF, true, [this] { openOtherSettings(); });
+		addEntry(webosTr("menu.configure_input", "CONFIGURE INPUT"), 0x777777FF, true, [this] { openConfigInput(); });
 	} else {
-		addEntry(webosTr("SOUND SETTINGS", "TONEINSTELLUNGEN"), 0x777777FF, true, [this] { openSoundSettings(); });
+		addEntry(webosTr("menu.sound_settings", "SOUND SETTINGS"), 0x777777FF, true, [this] { openSoundSettings(); });
 	}
 
-	addEntry(webosTr("QUIT", "BEENDEN"), 0x777777FF, true, [this] {openQuitMenu(); });
+	addEntry(webosTr("menu.quit", "QUIT"), 0x777777FF, true, [this] {openQuitMenu(); });
 
 	addChild(&mMenu);
 	addVersionInfo();
@@ -454,20 +230,20 @@ void GuiMenu::openScraperSettings()
 	auto s = new GuiSettings(mWindow, "SCRAPER");
 
 	// scrape from
-	auto scraper_list = std::make_shared< OptionListComponent< std::string > >(mWindow, webosTr("SCRAPE FROM", "DATENQUELLE"), false);
+	auto scraper_list = std::make_shared< OptionListComponent< std::string > >(mWindow, webosTr("scraper.source", "SCRAPE FROM"), false);
 	std::vector<std::string> scrapers = getScraperList();
 
 	// Select either the first entry of the one read from the settings, just in case the scraper from settings has vanished.
 	for(auto it = scrapers.cbegin(); it != scrapers.cend(); it++)
 		scraper_list->add(*it, *it, *it == Settings::getInstance()->getString("Scraper"));
 
-	s->addWithLabel(webosTr("SCRAPE FROM", "DATENQUELLE"), scraper_list);
+	s->addWithLabel(webosTr("scraper.source", "SCRAPE FROM"), scraper_list);
 	s->addSaveFunc([scraper_list] { Settings::getInstance()->setString("Scraper", scraper_list->getSelected()); });
 
 
 #ifdef WEBOS
 	auto scraper_language = std::make_shared<OptionListComponent<std::string>>(mWindow,
-		webosTr("SCRAPER LANGUAGE", "SCRAPER-SPRACHE"), false);
+		webosTr("scraper.language", "SCRAPER LANGUAGE"), false);
 	const std::string currentLanguage = Settings::getInstance()->getString("WebOSScraperLanguage");
 	scraper_language->add("Deutsch", "de", currentLanguage == "de" || currentLanguage.empty());
 	scraper_language->add("English", "en", currentLanguage == "en");
@@ -477,19 +253,19 @@ void GuiMenu::openScraperSettings()
 	scraper_language->add("Nederlands", "nl", currentLanguage == "nl");
 	scraper_language->add("Português", "pt", currentLanguage == "pt");
 	scraper_language->add("Polski", "pl", currentLanguage == "pl");
-	s->addWithLabel(webosTr("LANGUAGE (SCREENSCRAPER)", "SPRACHE (SCREENSCRAPER)"), scraper_language);
+	s->addWithLabel(webosTr("scraper.language_label", "LANGUAGE (SCREENSCRAPER)"), scraper_language);
 	s->addSaveFunc([scraper_language] {
 		Settings::getInstance()->setString("WebOSScraperLanguage", scraper_language->getSelected());
 	});
 
 	auto scraper_region = std::make_shared<OptionListComponent<std::string>>(mWindow,
-		webosTr("SCRAPER REGION", "SCRAPER-REGION"), false);
+		webosTr("scraper.region", "SCRAPER REGION"), false);
 	const std::string currentRegion = Settings::getInstance()->getString("WebOSScraperRegion");
-	scraper_region->add(webosTr("Europe", "Europa"), "eu", currentRegion == "eu" || currentRegion.empty());
+	scraper_region->add(webosTr("region.europe", "Europe"), "eu", currentRegion == "eu" || currentRegion.empty());
 	scraper_region->add("USA", "us", currentRegion == "us");
-	scraper_region->add(webosTr("Japan", "Japan"), "jp", currentRegion == "jp");
-	scraper_region->add(webosTr("World", "Welt"), "wor", currentRegion == "wor");
-	s->addWithLabel(webosTr("REGION (SCREENSCRAPER)", "REGION (SCREENSCRAPER)"), scraper_region);
+	scraper_region->add(webosTr("region.japan", "Japan"), "jp", currentRegion == "jp");
+	scraper_region->add(webosTr("region.world", "World"), "wor", currentRegion == "wor");
+	s->addWithLabel(webosTr("scraper.region_label", "REGION (SCREENSCRAPER)"), scraper_region);
 	s->addSaveFunc([scraper_region] {
 		Settings::getInstance()->setString("WebOSScraperRegion", scraper_region->getSelected());
 	});
@@ -498,7 +274,7 @@ void GuiMenu::openScraperSettings()
 	// scrape ratings
 	auto scrape_ratings = std::make_shared<SwitchComponent>(mWindow);
 	scrape_ratings->setState(Settings::getInstance()->getBool("ScrapeRatings"));
-	s->addWithLabel(webosTr("SCRAPE RATINGS", "BEWERTUNGEN LADEN"), scrape_ratings);
+	s->addWithLabel(webosTr("scraper.ratings", "SCRAPE RATINGS"), scrape_ratings);
 	s->addSaveFunc([scrape_ratings] { Settings::getInstance()->setBool("ScrapeRatings", scrape_ratings->getState()); });
 
 	// scrape now
@@ -508,7 +284,7 @@ void GuiMenu::openScraperSettings()
 	openAndSave = [s, openAndSave] { s->save(); openAndSave(); };
 	row.makeAcceptInputHandler(openAndSave);
 
-	auto scrape_now = std::make_shared<TextComponent>(mWindow, webosTr("SCRAPE NOW", "JETZT LADEN"), Font::get(FONT_SIZE_MEDIUM), 0x777777FF);
+	auto scrape_now = std::make_shared<TextComponent>(mWindow, webosTr("scraper.now", "SCRAPE NOW"), Font::get(FONT_SIZE_MEDIUM), 0x777777FF);
 	auto bracket = makeArrow(mWindow);
 	row.addElement(scrape_now, true);
 	row.addElement(bracket, false);
@@ -520,12 +296,11 @@ void GuiMenu::openScraperSettings()
 #ifdef WEBOS
 void GuiMenu::openWebOSGameSettings()
 {
-	auto s = new GuiSettings(mWindow, webosTr("GAMES & SYSTEMS", "SPIELE & SYSTEME"));
+	auto s = new GuiSettings(mWindow, webosTr("menu.games_systems", "GAMES & SYSTEMS"));
 	Settings* settings = Settings::getInstance();
 
 	auto info = std::make_shared<TextComponent>(mWindow,
-		webosTr("Enable a system and set its game folder. Changes are saved when you go back; restart EmulationStation to rescan games.",
-			"System aktivieren und Spieleordner setzen. Beim Zurückgehen wird gespeichert; danach EmulationStation neu starten."),
+		webosTr("games.info", "Enable a system and set its game folder. Changes are saved when you go back; restart EmulationStation to rescan games."),
 		Font::get(FONT_SIZE_SMALL), 0x777777FF);
 	ComponentListRow infoRow;
 	infoRow.addElement(info, true);
@@ -541,7 +316,7 @@ void GuiMenu::openWebOSGameSettings()
 		const std::string enabledKey = preset.enabledKey;
 		auto pathText = std::make_shared<TextComponent>(mWindow, settings->getString(pathKey), Font::get(FONT_SIZE_SMALL), 0x777777FF);
 		ComponentListRow pathRow;
-		pathRow.addElement(std::make_shared<TextComponent>(mWindow, webosTr("GAME FOLDER", "SPIELEORDNER"), Font::get(FONT_SIZE_MEDIUM), 0x777777FF), true);
+		pathRow.addElement(std::make_shared<TextComponent>(mWindow, webosTr("games.game_folder", "GAME FOLDER"), Font::get(FONT_SIZE_MEDIUM), 0x777777FF), true);
 		pathRow.addElement(pathText, false);
 		pathRow.addElement(makeArrow(mWindow), false);
 		pathRow.makeAcceptInputHandler([this, pathText, pathKey] {
@@ -563,7 +338,7 @@ void GuiMenu::openWebOSGameSettings()
 		if(!saveWebOSSystemsConfig())
 		{
 			mWindow->pushGui(new GuiMsgBox(mWindow,
-				webosTr("Could not save the systems configuration.", "Systemkonfiguration konnte nicht gespeichert werden."),
+				webosTr("games.save_error", "Could not save the systems configuration."),
 				"OK"));
 		}
 	});
@@ -574,12 +349,12 @@ void GuiMenu::openWebOSGameSettings()
 
 void GuiMenu::openSoundSettings()
 {
-	auto s = new GuiSettings(mWindow, webosTr("SOUND SETTINGS", "TONEINSTELLUNGEN"));
+	auto s = new GuiSettings(mWindow, webosTr("menu.sound_settings", "SOUND SETTINGS"));
 
 	// volume
 	auto volume = std::make_shared<SliderComponent>(mWindow, 0.f, 100.f, 1.f, "%");
 	volume->setValue((float)VolumeControl::getInstance()->getVolume());
-	s->addWithLabel(webosTr("SYSTEM VOLUME", "SYSTEMLAUTSTÄRKE"), volume);
+	s->addWithLabel(webosTr("sound.system_volume", "SYSTEM VOLUME"), volume);
 	s->addSaveFunc([volume] { VolumeControl::getInstance()->setVolume((int)Math::round(volume->getValue())); });
 
 	if (UIModeController::getInstance()->isUIModeFull())
@@ -636,7 +411,7 @@ void GuiMenu::openSoundSettings()
 		// disable sounds
 		auto sounds_enabled = std::make_shared<SwitchComponent>(mWindow);
 		sounds_enabled->setState(Settings::getInstance()->getBool("EnableSounds"));
-		s->addWithLabel(webosTr("ENABLE NAVIGATION SOUNDS", "NAVIGATIONSTÖNE"), sounds_enabled);
+		s->addWithLabel(webosTr("sound.navigation_sounds", "ENABLE NAVIGATION SOUNDS"), sounds_enabled);
 		s->addSaveFunc([sounds_enabled] {
 			if (sounds_enabled->getState()
 				&& !Settings::getInstance()->getBool("EnableSounds")
@@ -650,7 +425,7 @@ void GuiMenu::openSoundSettings()
 
 		auto video_audio = std::make_shared<SwitchComponent>(mWindow);
 		video_audio->setState(Settings::getInstance()->getBool("VideoAudio"));
-		s->addWithLabel(webosTr("ENABLE VIDEO AUDIO", "VIDEO-TON"), video_audio);
+		s->addWithLabel(webosTr("sound.video_audio", "ENABLE VIDEO AUDIO"), video_audio);
 		s->addSaveFunc([video_audio] { Settings::getInstance()->setBool("VideoAudio", video_audio->getState()); });
 
 #ifdef _OMX_
@@ -685,22 +460,23 @@ void GuiMenu::openSoundSettings()
 
 void GuiMenu::openUISettings()
 {
-	auto s = new GuiSettings(mWindow, webosTr("UI SETTINGS", "OBERFLÄCHE"));
+	auto s = new GuiSettings(mWindow, webosTr("menu.ui_settings", "UI SETTINGS"));
 
 #ifdef WEBOS
-	auto language = std::make_shared<OptionListComponent<std::string>>(mWindow, webosTr("LANGUAGE", "SPRACHE"), false);
-	language->add("Deutsch", "de", Settings::getInstance()->getString("WebOSLanguage") != "en");
-	language->add("English", "en", Settings::getInstance()->getString("WebOSLanguage") == "en");
-	s->addWithLabel(webosTr("LANGUAGE", "SPRACHE"), language);
+	auto language = std::make_shared<OptionListComponent<std::string>>(mWindow, webosTr("ui.language", "LANGUAGE"), false);
+	const std::string currentLanguage = webosCurrentLanguage();
+	for(const auto& entry : webosLanguages())
+		language->add(entry.nativeName, entry.code, currentLanguage == entry.code);
+	s->addWithLabel(webosTr("ui.language", "LANGUAGE"), language);
 	s->addSaveFunc([language] { Settings::getInstance()->setString("WebOSLanguage", language->getSelected()); });
 #endif
 
 	//UI mode
-	auto UImodeSelection = std::make_shared< OptionListComponent<std::string> >(mWindow, webosTr("UI MODE", "UI-MODUS"), false);
+	auto UImodeSelection = std::make_shared< OptionListComponent<std::string> >(mWindow, webosTr("ui.mode", "UI MODE"), false);
 	std::vector<std::string> UImodes = UIModeController::getInstance()->getUIModes();
 	for (auto it = UImodes.cbegin(); it != UImodes.cend(); it++)
 		UImodeSelection->add(*it, *it, Settings::getInstance()->getString("UIMode") == *it);
-	s->addWithLabel(webosTr("UI MODE", "UI-MODUS"), UImodeSelection);
+	s->addWithLabel(webosTr("ui.mode", "UI MODE"), UImodeSelection);
 	Window* window = mWindow;
 	s->addSaveFunc([ UImodeSelection, window]
 	{
@@ -724,7 +500,7 @@ void GuiMenu::openUISettings()
 	// screensaver
 	ComponentListRow screensaver_row;
 	screensaver_row.elements.clear();
-	screensaver_row.addElement(std::make_shared<TextComponent>(mWindow, webosTr("SCREENSAVER SETTINGS", "BILDSCHIRMSCHONER"), Font::get(FONT_SIZE_MEDIUM), 0x777777FF), true);
+	screensaver_row.addElement(std::make_shared<TextComponent>(mWindow, webosTr("ui.screensaver", "SCREENSAVER SETTINGS"), Font::get(FONT_SIZE_MEDIUM), 0x777777FF), true);
 	screensaver_row.addElement(makeArrow(mWindow), false);
 	screensaver_row.makeAcceptInputHandler(std::bind(&GuiMenu::openScreensaverOptions, this));
 	s->addRow(screensaver_row);
@@ -732,7 +508,7 @@ void GuiMenu::openUISettings()
 	// quick system select (left/right in game list view)
 	auto quick_sys_select = std::make_shared<SwitchComponent>(mWindow);
 	quick_sys_select->setState(Settings::getInstance()->getBool("QuickSystemSelect"));
-	s->addWithLabel(webosTr("QUICK SYSTEM SELECT", "SCHNELLER SYSTEMWECHSEL"), quick_sys_select);
+	s->addWithLabel(webosTr("ui.quick_system_select", "QUICK SYSTEM SELECT"), quick_sys_select);
 	s->addSaveFunc([quick_sys_select] { Settings::getInstance()->setBool("QuickSystemSelect", quick_sys_select->getState()); });
 
 	// carousel transition option
@@ -751,14 +527,14 @@ void GuiMenu::openUISettings()
 	});
 
 	// transition style
-	auto transition_style = std::make_shared< OptionListComponent<std::string> >(mWindow, webosTr("TRANSITION STYLE", "ÜBERGANG"), false);
+	auto transition_style = std::make_shared< OptionListComponent<std::string> >(mWindow, webosTr("ui.transition_style", "TRANSITION STYLE"), false);
 	std::vector<std::string> transitions;
 	transitions.push_back("fade");
 	transitions.push_back("slide");
 	transitions.push_back("instant");
 	for(auto it = transitions.cbegin(); it != transitions.cend(); it++)
 		transition_style->add(*it, *it, Settings::getInstance()->getString("TransitionStyle") == *it);
-	s->addWithLabel(webosTr("TRANSITION STYLE", "ÜBERGANG"), transition_style);
+	s->addWithLabel(webosTr("ui.transition_style", "TRANSITION STYLE"), transition_style);
 	s->addSaveFunc([transition_style] {
 		if (Settings::getInstance()->getString("TransitionStyle") == "instant"
 			&& transition_style->getSelected() != "instant"
@@ -773,7 +549,7 @@ void GuiMenu::openUISettings()
 #ifdef WEBOS
 	ComponentListRow themeDownloadRow;
 	themeDownloadRow.addElement(std::make_shared<TextComponent>(mWindow,
-		webosTr("DOWNLOAD THEMES", "THEMES HERUNTERLADEN"), Font::get(FONT_SIZE_MEDIUM), 0x777777FF), true);
+		webosTr("ui.theme_manager", "DOWNLOAD THEMES"), Font::get(FONT_SIZE_MEDIUM), 0x777777FF), true);
 	themeDownloadRow.addElement(makeArrow(mWindow), false);
 	themeDownloadRow.makeAcceptInputHandler(std::bind(&GuiMenu::openWebOSThemeManager, this));
 	s->addRow(themeDownloadRow);
@@ -788,10 +564,10 @@ void GuiMenu::openUISettings()
 		if(selectedSet == themeSets.cend())
 			selectedSet = themeSets.cbegin();
 
-		auto theme_set = std::make_shared< OptionListComponent<std::string> >(mWindow, webosTr("THEME SET", "DESIGN"), false);
+		auto theme_set = std::make_shared< OptionListComponent<std::string> >(mWindow, webosTr("ui.theme_set", "THEME SET"), false);
 		for(auto it = themeSets.cbegin(); it != themeSets.cend(); it++)
 			theme_set->add(it->first, it->first, it == selectedSet);
-		s->addWithLabel(webosTr("THEME SET", "DESIGN"), theme_set);
+		s->addWithLabel(webosTr("ui.theme_set", "THEME SET"), theme_set);
 
 		Window* window = mWindow;
 		s->addSaveFunc([window, theme_set]
@@ -885,7 +661,7 @@ void GuiMenu::openUISettings()
 	// show help
 	auto show_help = std::make_shared<SwitchComponent>(mWindow);
 	show_help->setState(Settings::getInstance()->getBool("ShowHelpPrompts"));
-	s->addWithLabel(webosTr("ON-SCREEN HELP", "TASTENHINWEISE"), show_help);
+	s->addWithLabel(webosTr("ui.on_screen_help", "ON-SCREEN HELP"), show_help);
 	s->addSaveFunc([show_help] { Settings::getInstance()->setBool("ShowHelpPrompts", show_help->getState()); });
 
 	// enable filters (ForceDisableFilters)
@@ -911,56 +687,84 @@ void GuiMenu::openUISettings()
 #ifdef WEBOS
 void GuiMenu::openWebOSThemeManager()
 {
-	auto s = new GuiSettings(mWindow, webosTr("DOWNLOAD THEMES", "THEMES HERUNTERLADEN"));
+    auto s = new GuiSettings(mWindow, webosTr("ui.theme_manager", "THEME MANAGER"));
 
-	ComponentListRow infoRow;
-	infoRow.addElement(std::make_shared<TextComponent>(mWindow,
-		webosTr("Themes are downloaded from the official RetroPie repositories and remain installed after app updates.",
-			"Themes werden aus den offiziellen RetroPie-Repositories geladen und bleiben auch nach App-Updates installiert."),
-		Font::get(FONT_SIZE_SMALL), 0x777777FF), true);
-	s->addRow(infoRow);
+    ComponentListRow infoRow;
+    infoRow.addElement(std::make_shared<TextComponent>(mWindow,
+        webosTr("theme.info", "Install or remove themes. Simple Dark is included with the app; other themes are downloaded from the official RetroPie repositories."),
+        Font::get(FONT_SIZE_SMALL), 0x777777FF), true);
+    s->addRow(infoRow);
 
-	for(const auto& theme : sWebOSThemes)
-	{
-		const bool installed = webosThemeInstalled(theme);
-		std::string label = theme.displayName;
-		if(installed)
-			label += webosTr(" (installed)", " (installiert)");
+    for(const auto& theme : webosThemes())
+    {
+        const bool installed = webosThemeInstalled(theme);
+        std::string label = theme.displayName;
+        if(installed)
+            label += webosTr("common.installed_suffix", " (installed)");
 
-		ComponentListRow row;
-		row.addElement(std::make_shared<TextComponent>(mWindow, label, Font::get(FONT_SIZE_MEDIUM), 0x777777FF), true);
-		row.addElement(makeArrow(mWindow), false);
-		row.makeAcceptInputHandler([this, theme] {
-			std::string error;
-			LOG(LogInfo) << "webOS theme manager: downloading " << theme.displayName;
-			if(!webosInstallTheme(theme, error))
-			{
-				mWindow->pushGui(new GuiMsgBox(mWindow,
-					std::string(webosTr("Theme installation failed.\n\n", "Theme-Installation fehlgeschlagen.\n\n")) + error));
-				return;
-			}
+        ComponentListRow row;
+        row.addElement(std::make_shared<TextComponent>(mWindow, label, Font::get(FONT_SIZE_MEDIUM), 0x777777FF), true);
+        row.addElement(makeArrow(mWindow), false);
+        if(installed)
+        {
+            row.makeAcceptInputHandler([this, theme] {
+                mWindow->pushGui(new GuiMsgBox(mWindow,
+                    std::string(webosTr("theme.delete_question", "Delete this theme?")) + "\n\n" + theme.displayName,
+                    webosTr("common.delete", "DELETE"), [this, theme] {
+                        std::string error;
+                        std::string replacementTheme;
+                        bool activeThemeChanged = false;
+                        if(!webosDeleteTheme(theme, error, activeThemeChanged, replacementTheme))
+                        {
+                            mWindow->pushGui(new GuiMsgBox(mWindow,
+                                std::string(webosTr("theme.delete_failed", "Theme could not be deleted.\n\n")) + error));
+                            return;
+                        }
 
-			mWindow->pushGui(new GuiMsgBox(mWindow,
-				std::string(theme.displayName) + webosTr(" was installed.\nApply this theme now?", " wurde installiert.\nDieses Theme jetzt anwenden?"),
-				webosTr("YES", "JA"), [theme] {
-					const std::string oldTheme = Settings::getInstance()->getString("ThemeSet");
-					Settings::getInstance()->setString("ThemeSet", theme.folderName);
-					Settings::getInstance()->saveFile();
-					Scripting::fireEvent("theme-changed", theme.folderName, oldTheme);
-					CollectionSystemManager::get()->updateSystemsList();
-					ViewController::get()->reloadAll(true);
-				}, webosTr("NO", "NEIN"), nullptr));
-		});
-		s->addRow(row);
-	}
+                        if(activeThemeChanged)
+                        {
+                            Scripting::fireEvent("theme-changed", replacementTheme, theme.folderName);
+                            CollectionSystemManager::get()->updateSystemsList();
+                            ViewController::get()->reloadAll(true);
+                        }
+                        mWindow->pushGui(new GuiMsgBox(mWindow, webosTr("theme.deleted", "Theme deleted."), webosTr("common.ok", "OK")));
+                    }, webosTr("common.cancel", "CANCEL"), nullptr));
+            });
+        }
+        else
+        {
+            row.makeAcceptInputHandler([this, theme] {
+                std::string error;
+                LOG(LogInfo) << "webOS theme manager: installing " << theme.displayName;
+                if(!webosInstallTheme(theme, error))
+                {
+                    mWindow->pushGui(new GuiMsgBox(mWindow,
+                        std::string(webosTr("theme.install_failed", "Theme installation failed.\n\n")) + error));
+                    return;
+                }
 
-	mWindow->pushGui(s);
+                mWindow->pushGui(new GuiMsgBox(mWindow,
+                    std::string(theme.displayName) + webosTr("theme.installed_apply", " was installed.\nApply this theme now?"),
+                    webosTr("common.yes", "YES"), [theme] {
+                        const std::string oldTheme = Settings::getInstance()->getString("ThemeSet");
+                        Settings::getInstance()->setString("ThemeSet", theme.folderName);
+                        Settings::getInstance()->saveFile();
+                        Scripting::fireEvent("theme-changed", theme.folderName, oldTheme);
+                        CollectionSystemManager::get()->updateSystemsList();
+                        ViewController::get()->reloadAll(true);
+                    }, webosTr("common.no", "NO"), nullptr));
+            });
+        }
+        s->addRow(row);
+    }
+
+    mWindow->pushGui(s);
 }
 #endif
 
 void GuiMenu::openOtherSettings()
 {
-	auto s = new GuiSettings(mWindow, webosTr("OTHER SETTINGS", "WEITERE EINSTELLUNGEN"));
+	auto s = new GuiSettings(mWindow, webosTr("menu.other_settings", "OTHER SETTINGS"));
 
 	// maximum vram
 	auto max_vram = std::make_shared<SliderComponent>(mWindow, 0.f, 1000.f, 10.f, "Mb");
@@ -1073,7 +877,7 @@ void GuiMenu::openConfigInput()
 
 void GuiMenu::openQuitMenu()
 {
-	auto s = new GuiSettings(mWindow, webosTr("QUIT", "BEENDEN"));
+	auto s = new GuiSettings(mWindow, webosTr("menu.quit", "QUIT"));
 
 	Window* window = mWindow;
 
@@ -1097,12 +901,12 @@ void GuiMenu::openQuitMenu()
 
 		if (confirm_quit) {
 			row.makeAcceptInputHandler([window] {
-				window->pushGui(new GuiMsgBox(window, "REALLY RESTART?", "YES", restart_es_fx, "NO", nullptr));
+				window->pushGui(new GuiMsgBox(window, webosTr("quit.really_restart", "REALLY RESTART?"), webosTr("common.yes", "YES"), restart_es_fx, webosTr("common.no", "NO"), nullptr));
 			});
 		} else {
 			row.makeAcceptInputHandler(restart_es_fx);
 		}
-		row.addElement(std::make_shared<TextComponent>(window, "RESTART EMULATIONSTATION", Font::get(FONT_SIZE_MEDIUM), 0x777777FF), true);
+		row.addElement(std::make_shared<TextComponent>(window, webosTr("quit.restart_es", "RESTART EMULATIONSTATION"), Font::get(FONT_SIZE_MEDIUM), 0x777777FF), true);
 		s->addRow(row);
 
 #ifdef WEBOS
@@ -1119,12 +923,12 @@ void GuiMenu::openQuitMenu()
 			row.elements.clear();
 			if (confirm_quit) {
 				row.makeAcceptInputHandler([window] {
-					window->pushGui(new GuiMsgBox(window, "REALLY QUIT?", "YES", quit_es_fx, "NO", nullptr));
+					window->pushGui(new GuiMsgBox(window, webosTr("quit.really_quit", "REALLY QUIT?"), webosTr("common.yes", "YES"), quit_es_fx, webosTr("common.no", "NO"), nullptr));
 				});
 			} else {
 				row.makeAcceptInputHandler(quit_es_fx);
 			}
-			row.addElement(std::make_shared<TextComponent>(window, "QUIT EMULATIONSTATION", Font::get(FONT_SIZE_MEDIUM), 0x777777FF), true);
+			row.addElement(std::make_shared<TextComponent>(window, webosTr("quit.quit_es", "QUIT EMULATIONSTATION"), Font::get(FONT_SIZE_MEDIUM), 0x777777FF), true);
 			s->addRow(row);
 		}
 	}
@@ -1184,7 +988,7 @@ void GuiMenu::addVersionInfo()
 }
 
 void GuiMenu::openScreensaverOptions() {
-	mWindow->pushGui(new GuiGeneralScreensaverOptions(mWindow, webosTr("SCREENSAVER SETTINGS", "BILDSCHIRMSCHONER")));
+	mWindow->pushGui(new GuiGeneralScreensaverOptions(mWindow, webosTr("ui.screensaver", "SCREENSAVER SETTINGS")));
 }
 
 void GuiMenu::openCollectionSystemSettings() {

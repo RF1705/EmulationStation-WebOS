@@ -158,9 +158,9 @@ bool SystemView::input(InputConfig* config, Input input)
 
 			mWindow->pushGui(new GuiMsgBox(
 				mWindow,
-				webosTr("REALLY QUIT EMULATIONSTATION?", "EMULATIONSTATION WIRKLICH BEENDEN?"),
-				webosTr("YES", "JA"), quit_es_fx,
-				webosTr("NO", "NEIN"), nullptr));
+				webosTr("quit.really_quit_es", "REALLY QUIT EMULATIONSTATION?"),
+				webosTr("common.yes", "YES"), quit_es_fx,
+				webosTr("common.no", "NO"), nullptr));
 			return true;
 		}
 #endif

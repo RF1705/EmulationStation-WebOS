@@ -71,6 +71,7 @@ void Settings::setDefaults()
 	mStringMap["WebOSLanguage"] = "de";
 	mStringMap["WebOSScraperLanguage"] = "de";
 	mStringMap["WebOSScraperRegion"] = "eu";
+	mBoolMap["WebOSBundledSimpleDarkSeeded"] = false;
 	mBoolMap["WebOSSystemScummVM"] = false;
 	mBoolMap["WebOSSystemNES"] = false;
 	mBoolMap["WebOSSystemSNES"] = false;

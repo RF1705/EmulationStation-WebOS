@@ -10,7 +10,7 @@ GuiSettings::GuiSettings(Window* window, const char* title) : GuiComponent(windo
 {
 	addChild(&mMenu);
 
-	mMenu.addButton(webosTr("BACK", "ZURÜCK"), webosTr("go back", "zurück"), [this] { delete this; });
+	mMenu.addButton(webosTrLegacy("BACK", "ZURÜCK"), webosTrLegacy("go back", "zurück"), [this] { delete this; });
 
 	setSize((float)Renderer::getScreenWidth(), (float)Renderer::getScreenHeight());
 	mMenu.setPosition((mSize.x() - mMenu.getSize().x()) / 2, Renderer::getScreenHeight() * 0.15f);
@@ -63,8 +63,8 @@ std::vector<HelpPrompt> GuiSettings::getHelpPrompts()
 {
 	std::vector<HelpPrompt> prompts = mMenu.getHelpPrompts();
 
-	prompts.push_back(HelpPrompt("b", webosTr("back", "zurück")));
-	prompts.push_back(HelpPrompt("start", webosTr("close", "schließen")));
+	prompts.push_back(HelpPrompt("b", webosTrLegacy("back", "zurück")));
+	prompts.push_back(HelpPrompt("start", webosTrLegacy("close", "schließen")));
 
 	return prompts;
 }

@@ -22,7 +22,8 @@ The port is intentionally TV-native rather than a Raspberry Pi environment trans
 - graphical Games & Systems configuration for webOS paths
 - no artificial `webos` console/system entry in the carousel
 - a zero-system installation opens configuration instead of failing with the desktop EmulationStation error
-- built-in webOS-oriented UI text/localization and theme management
+- keyed JSON localization with English fallback and eight selectable UI languages
+- theme manager with install/remove support; Simple Dark is bundled as the first-run default
 - webOS file browser and scraper adaptations
 
 ## Source layout
@@ -53,6 +54,14 @@ com.rf1705.emulationstation_1.0.0-webos0.1.0_arm.ipk
 ```
 
 The webOS build deliberately omits Raspberry Pi-specific Broadcom/OMX code and the libVLC runtime. Packaged ELF files are stripped and only the required shared-library dependency closure is included.
+
+## Localization
+
+webOS UI translations use stable keys from `WebOSLocalization.h` and flat JSON files in `resources/i18n/`. English is the fallback language when a key is missing. The initial language set is German, English, French, Spanish, Italian, Dutch, Portuguese and Polish.
+
+## Themes
+
+`Simple Dark` is bundled in the IPK and installed into the writable user theme directory on first run. It is the default for new installations, but it is not protected: deleting it from the theme manager keeps it deleted. The bundled archive remains available for an explicit reinstall.
 
 ## Runtime log
 
