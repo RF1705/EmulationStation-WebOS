@@ -96,9 +96,26 @@ if "No game systems found; opening webOS setup menu" not in text:
         raise SystemExit("empty system startup anchor not found")
     text = text.replace(empty_anchor, empty_replacement, 1)
 
-startup_anchor = '''\tif(errorMsg == NULL)
+# patch-retropie-webos.py runs before this patch and already wraps the normal
+# first-run input check in WEBOS/else preprocessor branches. Accept that form
+# explicitly instead of relying on the untouched upstream block.
+startup_anchor_upstream = '''\tif(errorMsg == NULL)
 \t{
 \t\tif(Utils::FileSystem::exists(InputManager::getConfigPath()) && InputManager::getInstance()->getNumConfiguredDevices() > 0)
+\t\t{
+\t\t\tViewController::get()->goToStart();
+\t\t}else{
+\t\t\twindow.pushGui(new GuiDetectDevice(&window, true, [] { ViewController::get()->goToStart(); }));
+\t\t}
+\t}
+'''
+startup_anchor_webos_base = '''\tif(errorMsg == NULL)
+\t{
+#ifdef WEBOS
+\t\tif(InputManager::getInstance()->getNumConfiguredDevices() > 0)
+#else
+\t\tif(Utils::FileSystem::exists(InputManager::getConfigPath()) && InputManager::getInstance()->getNumConfiguredDevices() > 0)
+#endif
 \t\t{
 \t\t\tViewController::get()->goToStart();
 \t\t}else{
@@ -112,25 +129,36 @@ startup_replacement = '''\tif(errorMsg == NULL)
 \t\tif(SystemData::sSystemVector.empty())
 \t\t{
 \t\t\tauto openSetupMenu = [&window] { window.pushGui(new GuiMenu(&window)); };
-\t\t\tif(Utils::FileSystem::exists(InputManager::getConfigPath()) && InputManager::getInstance()->getNumConfiguredDevices() > 0)
+\t\t\tif(InputManager::getInstance()->getNumConfiguredDevices() > 0)
 \t\t\t\topenSetupMenu();
 \t\t\telse
 \t\t\t\twindow.pushGui(new GuiDetectDevice(&window, true, openSetupMenu));
 \t\t}
+\t\telse if(InputManager::getInstance()->getNumConfiguredDevices() > 0)
+\t\t{
+\t\t\tViewController::get()->goToStart();
+\t\t}
 \t\telse
-#endif
+\t\t{
+\t\t\twindow.pushGui(new GuiDetectDevice(&window, true, [] { ViewController::get()->goToStart(); }));
+\t\t}
+#else
 \t\tif(Utils::FileSystem::exists(InputManager::getConfigPath()) && InputManager::getInstance()->getNumConfiguredDevices() > 0)
 \t\t{
 \t\t\tViewController::get()->goToStart();
 \t\t}else{
 \t\t\twindow.pushGui(new GuiDetectDevice(&window, true, [] { ViewController::get()->goToStart(); }));
 \t\t}
+#endif
 \t}
 '''
 if "auto openSetupMenu = [&window]" not in text:
-    if startup_anchor not in text:
+    if startup_anchor_webos_base in text:
+        text = text.replace(startup_anchor_webos_base, startup_replacement, 1)
+    elif startup_anchor_upstream in text:
+        text = text.replace(startup_anchor_upstream, startup_replacement, 1)
+    else:
         raise SystemExit("webOS first-run setup anchor not found")
-    text = text.replace(startup_anchor, startup_replacement, 1)
 
 main_cpp.write_text(text)
 print("Removed webOS dummy system and enabled empty-library setup mode")
