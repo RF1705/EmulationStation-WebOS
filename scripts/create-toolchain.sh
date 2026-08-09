@@ -17,5 +17,5 @@ sed \
   -e "s/@CFLAGS@/$(escape_sed "${CFLAGS:-}")/g" \
   -e "s/@CXXFLAGS@/$(escape_sed "${CXXFLAGS:-}")/g" \
   -e "s/@LDFLAGS@/$(escape_sed "${LDFLAGS:-}")/g" \
-  "$repo_root/cmake/webos-chainload.cmake.in" > "$output"
+  "$repo_root/toolchain/webos-chainload.cmake.in" > "$output"
 echo "WEBOS_CHAINLOAD_TOOLCHAIN=$output"
