@@ -26,10 +26,10 @@ if "#include <SDL_webOS.h>" not in text:
 replacements = {
     "mappedKey == SDLK_0 || mappedKey == 403 || mappedKey == 461":
         "ev.key.keysym.scancode == SDL_WEBOS_SCANCODE_BACK || ev.key.keysym.scancode == SDL_SCANCODE_AC_BACK || mappedKey == SDLK_AC_BACK || mappedKey == 461",
-    # Numeric 1/2 are known to reach EmulationStation on the tested Magic Remote.
-    # Keep the proper webOS colour scancodes as optional equivalents for TVs that expose them.
+    # Map the standard SDL Menu key from the Magic Remote to EmulationStation's
+    # Start action (F1). Keep numeric 1 / green as fallback shortcuts.
     "mappedKey == SDLK_1 || mappedKey == 404":
-        "mappedKey == SDLK_1 || ev.key.keysym.scancode == SDL_WEBOS_SCANCODE_GREEN",
+        "mappedKey == SDLK_1 || ev.key.keysym.scancode == SDL_WEBOS_SCANCODE_GREEN || ev.key.keysym.scancode == SDL_SCANCODE_MENU",
     "mappedKey == SDLK_2 || mappedKey == 405":
         "mappedKey == SDLK_2 || ev.key.keysym.scancode == SDL_WEBOS_SCANCODE_YELLOW",
 }
@@ -101,4 +101,4 @@ if closed != 1:
     raise SystemExit("SDL_KEYUP case label not found")
 
 path.write_text(text)
-print("Applied webOS Back handling, remote mappings and SDL event diagnostics")
+print("Applied webOS Back handling, Menu mapping, remote mappings and SDL event diagnostics")
