@@ -30,7 +30,9 @@ Resources
 =========
 
 Open Sans font
-	http://www.google.com/fonts/specimen/Open+Sans## EmulationStation WebOS
+	http://www.google.com/fonts/specimen/Open+Sans
+
+## EmulationStation WebOS
 
 - Ronald Fiering (RF1705) - LG webOS port and maintenance
 - RetroPie EmulationStation contributors - upstream fork and ongoing EmulationStation development
