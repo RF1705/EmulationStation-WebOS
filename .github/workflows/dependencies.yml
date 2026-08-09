@@ -31,7 +31,7 @@ jobs:
           dependency_hash="${{ hashFiles(
             'scripts/build-vcpkg-dependencies.sh',
             'scripts/create-toolchain.sh',
-            'cmake/*.cmake.in',
+            'toolchain/*.cmake.in',
             'vcpkg-triplets/*.cmake',
             '.github/workflows/dependencies.yml'
           ) }}"
