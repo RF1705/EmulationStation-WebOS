@@ -1,0 +1,61 @@
+name: Migrate localization and theme management
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/migrate-i18n-themes.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: emulationstation-webos-i18n-theme-migration
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Apply migration
+        run: python3 scripts/migrate-i18n-themes.py
+
+      - name: Validate result
+        run: |
+          set -euo pipefail
+          test ! -e scripts/migrate-i18n-themes.py
+          test -f es-core/src/WebOSLocalization.h
+          test -f es-app/src/WebOSThemeManager.cpp
+          test -f es-app/src/WebOSThemeManager.h
+          test -f resources/i18n/en.json
+          test -f resources/i18n/de.json
+          test -f resources/i18n/fr.json
+          test -f resources/i18n/es.json
+          test -f resources/i18n/it.json
+          test -f resources/i18n/nl.json
+          test -f resources/i18n/pt.json
+          test -f resources/i18n/pl.json
+          test -s resources/bundled-themes/simple-dark.zip
+          unzip -t resources/bundled-themes/simple-dark.zip >/dev/null
+          grep -q 'webosEnsureBundledDefaultTheme' es-app/src/main.cpp
+          grep -q 'webosDeleteTheme' es-app/src/guis/GuiMenu.cpp
+          grep -q 'WebOSBundledSimpleDarkSeeded' es-core/src/Settings.cpp
+          grep -q 'webosTr("menu.main", "MAIN MENU")' es-app/src/guis/GuiMenu.cpp
+          git diff --check
+
+      - name: Commit migration
+        run: |
+          set -euo pipefail
+          git config user.name 'Ronald Fiering'
+          git config user.email 'rfiering@googlemail.com'
+          git add -A
+          git status --short
+          git commit -m 'Add keyed localization and removable bundled theme'
+          git push origin HEAD:main
