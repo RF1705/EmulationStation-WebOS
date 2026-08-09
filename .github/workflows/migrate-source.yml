@@ -37,6 +37,7 @@ jobs:
           git -C "$upstream" submodule update --init --recursive
           test "$(git -C "$upstream" rev-parse HEAD)" = "$RETROPIE_ES_REF"
           echo "UPSTREAM_DIR=$upstream" >> "$GITHUB_ENV"
+          echo "RETROPIE_ES_REF=$RETROPIE_ES_REF" >> "$GITHUB_ENV"
           echo "PUGIXML_REF=$(git -C "$upstream/external/pugixml" rev-parse HEAD)" >> "$GITHUB_ENV"
 
       - name: Apply existing webOS port once
@@ -57,10 +58,6 @@ jobs:
       - name: Vendor patched source tree
         run: |
           set -euo pipefail
-          # Keep this repository's .github/, packaging/, build scripts and README.
-          # Everything else from the pinned, patched EmulationStation worktree is
-          # copied into the repository. The pugixml submodule is copied as normal
-          # files, so the resulting project no longer needs .gitmodules.
           tar -C "$UPSTREAM_DIR" \
             --exclude='./.git' \
             --exclude='./.github' \
@@ -70,9 +67,9 @@ jobs:
             --exclude='*/.git' \
             -cf - . | tar -C "$GITHUB_WORKSPACE" -xf -
           rm -f .gitmodules
-          find external -name .git -print -exec rm -rf {} + 2>/dev/null || true
+          find external -name .git -exec rm -rf {} + 2>/dev/null || true
 
-      - name: Convert build scripts to direct source builds
+      - name: Convert helpers to direct source builds
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -101,14 +98,15 @@ jobs:
           )
           package.write_text(text)
           PY
-
           rm -f scripts/patch-retropie-webos*.py
 
-      - name: Update GitHub Actions for direct builds
+      - name: Write direct-source GitHub Actions workflow
         run: |
           set -euo pipefail
-          cat > .github/workflows/build.yml <<'YAML'
-          name: Build EmulationStation WebOS IPK
+          python3 - <<'PY'
+          from pathlib import Path
+
+          template = r'''name: Build EmulationStation WebOS IPK
 
           on:
             push:
@@ -121,7 +119,7 @@ jobs:
             contents: read
 
           concurrency:
-            group: emulationstation-webos-${{ github.workflow }}-${{ github.ref }}
+            group: emulationstation-webos-@@{{ github.workflow }}-@@{{ github.ref }}
             cancel-in-progress: true
 
           env:
@@ -149,7 +147,7 @@ jobs:
                   uses: actions/checkout@v4
                   with:
                     repository: microsoft/vcpkg
-                    ref: ${{ env.VCPKG_REF }}
+                    ref: @@{{ env.VCPKG_REF }}
                     path: vcpkg
                     fetch-depth: 1
 
@@ -160,12 +158,12 @@ jobs:
                   uses: actions/cache/restore@v4
                   with:
                     path: vcpkg/installed
-                    key: ${{ needs.dependencies.outputs.cache_key }}
+                    key: @@{{ needs.dependencies.outputs.cache_key }}
                     fail-on-cache-miss: true
 
                 - name: Download webOS build tools
                   env:
-                    GH_TOKEN: ${{ github.token }}
+                    GH_TOKEN: @@{{ github.token }}
                   run: |
                     mkdir -p "$RUNNER_TEMP/downloads"
                     curl --fail --location --retry 3 \
@@ -222,7 +220,7 @@ jobs:
                 - name: Upload artifact
                   uses: actions/upload-artifact@v4
                   with:
-                    name: emulationstation-webos-${{ github.sha }}-arm
+                    name: emulationstation-webos-@@{{ github.sha }}-arm
                     path: |
                       dist/*.ipk
                       dist/*.sha256
@@ -238,11 +236,11 @@ jobs:
               steps:
                 - uses: actions/download-artifact@v4
                   with:
-                    name: emulationstation-webos-${{ github.sha }}-arm
+                    name: emulationstation-webos-@@{{ github.sha }}-arm
                     path: release
                 - name: Publish release
                   env:
-                    GH_TOKEN: ${{ github.token }}
+                    GH_TOKEN: @@{{ github.token }}
                   run: |
                     cd release
                     sha256sum --check *.sha256
@@ -251,28 +249,36 @@ jobs:
                       --verify-tag \
                       --title "$GITHUB_REF_NAME" \
                       --generate-notes
-          YAML
+          '''
+          lines = template.splitlines()
+          nonempty = [line for line in lines if line.strip()]
+          indent = min(len(line) - len(line.lstrip()) for line in nonempty)
+          text = '\n'.join(line[indent:] if line.strip() else '' for line in lines).lstrip('\n')
+          text = text.replace('@@', '$')
+          Path('.github/workflows/build.yml').write_text(text)
 
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path('.github/workflows/dependencies.yml')
-          text = p.read_text()
+          deps = Path('.github/workflows/dependencies.yml')
+          text = deps.read_text()
           text = text.replace('Prepare RetroPie webOS dependencies', 'Prepare EmulationStation WebOS dependencies')
           text = text.replace('retropie-es-webos-deps-', 'emulationstation-webos-deps-')
-          p.write_text(text)
+          deps.write_text(text)
           PY
 
-      - name: Add project identity, license and upstream record
-        env:
-          RETROPIE_ES_REF: 1071b8358b316ebda837933150db949bda90495e
+      - name: Write project identity and provenance
         run: |
           set -euo pipefail
-          cat > README.md <<'MARKDOWN'
-          # EmulationStation WebOS
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          baseline = os.environ['RETROPIE_ES_REF']
+          pugixml = os.environ['PUGIXML_REF']
+
+          Path('README.md').write_text('''# EmulationStation WebOS
 
           A TV-focused EmulationStation frontend for rooted LG webOS TVs, based on the RetroPie fork of EmulationStation.
 
-          Unlike the early porting builds, this repository now contains the EmulationStation source directly. CI no longer downloads and patches `RetroPie/EmulationStation` for every build; webOS is maintained as a first-class target in this codebase.
+          This repository contains the EmulationStation application source directly. CI no longer downloads and patches `RetroPie/EmulationStation` for every build; webOS is maintained as a first-class target in this codebase.
 
           - Target: LG webOS, ARMv7 / Cortex-A9 / softfp / NEON
           - Graphics/input: SDL-webOS + OpenGL ES 2
@@ -297,7 +303,7 @@ jobs:
 
           ## Source layout
 
-          The original EmulationStation application sources now live directly in this repository:
+          The EmulationStation application sources live directly in this repository:
 
           ```text
           es-app/
@@ -308,13 +314,13 @@ jobs:
           CMakeLists.txt
           ```
 
-          `external/pugixml` is vendored as normal source files from the submodule revision used by the pinned upstream baseline. The previous `patch-retropie-webos-*.py` layer is gone.
+          `external/pugixml` is vendored as normal source files from the revision used by the imported upstream baseline. The previous `patch-retropie-webos-*.py` layer is gone.
 
           See [`UPSTREAM.md`](UPSTREAM.md) for the exact baseline and how to compare future RetroPie changes manually.
 
           ## Build
 
-          GitHub Actions builds the source tree in this repository directly using:
+          GitHub Actions builds this source tree directly using:
 
           - the `openlgtv/buildroot-nc4` webOS Buildroot SDK
           - `webosbrew/SDL-webOS`
@@ -351,11 +357,10 @@ jobs:
 
           If this project is useful to you, you can support development on [Buy Me a Coffee](https://buymeacoffee.com/rf1705).
 
-          GitHub Sponsors/Funding metadata is also available in [`.github/FUNDING.yml`](.github/FUNDING.yml).
-          MARKDOWN
+          GitHub funding metadata is available in [`.github/FUNDING.yml`](.github/FUNDING.yml).
+          '''.replace('\n          ', '\n').lstrip())
 
-          cat > LICENSE.md <<'LICENSE'
-          Copyright (c) 2014 Alec Lofquist
+          Path('LICENSE.md').write_text('''Copyright (c) 2014 Alec Lofquist
           Copyright (c) 2026 Ronald Fiering
 
           Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -375,48 +380,50 @@ jobs:
           LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
           OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
           THE SOFTWARE.
-          LICENSE
+          '''.replace('\n          ', '\n').lstrip())
 
-          cat > UPSTREAM.md <<MARKDOWN
-          # Upstream baseline
+          Path('UPSTREAM.md').write_text(f'''# Upstream baseline
 
           EmulationStation WebOS is based on the RetroPie fork of EmulationStation.
 
           On 2026-08-09 the project switched from applying webOS patch scripts during CI to maintaining the complete application source directly in this repository.
 
-          - Upstream repository: \`RetroPie/EmulationStation\`
-          - Imported commit: \`$RETROPIE_ES_REF\`
-          - Vendored pugixml revision: \`$PUGIXML_REF\`
+          - Upstream repository: `RetroPie/EmulationStation`
+          - Imported commit: `{baseline}`
+          - Vendored pugixml revision: `{pugixml}`
           - Upstream license: MIT
 
-          The imported source was patched with the complete webOS patch set that had been used by the previous CI build before being committed here. This preserves the behavior of the last patch-based build while making future webOS work normal source changes.
+          The imported source was patched with the complete webOS patch set used by the previous CI build before being committed here. This preserves the behavior of the patch-based build while making future webOS work normal source changes.
 
           ## Comparing future upstream changes
 
-          Upstream is no longer fetched during normal builds. To inspect later RetroPie changes in a local clone, add it as a secondary remote:
+          Upstream is no longer fetched during normal builds. To inspect later RetroPie changes in a local clone:
 
-          \`\`\`sh
+          ```sh
           git remote add retropie https://github.com/RetroPie/EmulationStation.git
           git fetch retropie
-          \`\`\`
+          ```
 
-          Then compare or cherry-pick individual upstream changes intentionally rather than automatically rebasing the webOS project.
+          Compare or cherry-pick individual upstream changes intentionally rather than automatically rebasing the webOS project.
 
           `external/pugixml` is vendored rather than kept as a Git submodule; its own license files remain in that directory.
-          MARKDOWN
+          '''.replace('\n          ', '\n').lstrip())
 
-          cat >> CREDITS.md <<'MARKDOWN'
+          credits = Path('CREDITS.md')
+          credits.write_text(credits.read_text().rstrip() + '''
 
           ## EmulationStation WebOS
 
           - Ronald Fiering (RF1705) - LG webOS port and maintenance
           - RetroPie EmulationStation contributors - upstream fork and ongoing EmulationStation development
-          MARKDOWN
+          '''.replace('\n          ', '\n'))
+          PY
 
       - name: Remove migration machinery and validate repository
         run: |
           set -euo pipefail
           rm -f .github/workflows/migrate-source.yml
+          rm -f .github/workflows/trigger-source-migration.yml
           test -f CMakeLists.txt
           test -d es-app
           test -d es-core
@@ -429,16 +436,18 @@ jobs:
             echo 'Patch scripts still present after migration.' >&2
             exit 1
           fi
-          if grep -R -n -E 'RETROPIE_ES_SOURCE_DIR|RETROPIE_ES_REF|repo_root/upstream' \
-              scripts .github/workflows/build.yml; then
+          if grep -R -n -E 'RETROPIE_ES_SOURCE_DIR|RETROPIE_ES_REF|repo_root/upstream' scripts .github/workflows/build.yml; then
             echo 'Old upstream-at-build-time references still present.' >&2
             exit 1
           fi
-          grep -q 'buy_me_a_coffee: rf1705' .github/FUNDING.yml
+          grep -q '^buy_me_a_coffee: rf1705$' .github/FUNDING.yml
+          grep -q 'SDL_WEBOS_ACCESS_POLICY_KEYS_HOME' packaging/launch-emulationstation.c
+          grep -q 'SDL_WEBOS_ACCESS_POLICY_RIBBON' packaging/launch-emulationstation.c
+          grep -q 'SDL_SCANCODE_WEBOS_HOME' es-core/src/InputManager.cpp
           bash -n scripts/*.sh
           git diff --check
 
-      - name: Commit source migration
+      - name: Commit standalone source tree
         run: |
           set -euo pipefail
           git config user.name 'Ronald Fiering'
@@ -451,4 +460,12 @@ jobs:
       - name: Start direct-source build
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh workflow run build.yml --ref main
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5; do
+            if gh workflow run build.yml --ref main --repo "$GITHUB_REPOSITORY"; then
+              exit 0
+            fi
+            sleep 2
+          done
+          exit 1
