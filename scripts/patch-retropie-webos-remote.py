@@ -13,10 +13,9 @@ if not path.is_file():
 
 text = path.read_text()
 
-# RetroArch's webOS port handles the real LG Magic Remote Back button via the
-# dedicated SDL-webOS scancode. Some webOS/SDL combinations expose the same
-# button through SDL's standard AC_BACK key/scancode instead, so accept both.
-# Numeric 0 remains a normal key and is deliberately not a Back fallback.
+# SDL-webOS delivers the LG Back button through its dedicated scancode once the
+# application claims the key with SDL_WEBOS_ACCESS_POLICY_KEYS_BACK=true.
+# Keep standard AC_BACK/keycode fallbacks as harmless compatibility paths.
 include_anchor = "#include <SDL.h>\n"
 include_addition = "#ifdef WEBOS\n#include <SDL_webOS.h>\n#endif\n"
 if "#include <SDL_webOS.h>" not in text:
@@ -40,10 +39,8 @@ for old, new in replacements.items():
         raise SystemExit(f"remote key mapping anchor not found: {old}")
     text = text.replace(old, new)
 
-# Log every SDL event before InputManager dispatches it. Back is known not to
-# arrive as SDL_KEYDOWN on the tested TV, so this lets us see whether SDL emits
-# a window, mouse, user or other event instead. These entries go to the normal
-# EmulationStation log below <home>/.emulationstation/es_log.txt.
+# Keep full SDL diagnostics for now so the first build with the access-policy
+# hint proves that Back arrives as a real keyboard event.
 parse_anchor = (
     "bool InputManager::parseEvent(const SDL_Event& ev, Window* window)\n"
     "{\n"
@@ -73,8 +70,6 @@ if parse_anchor not in text:
     raise SystemExit("parseEvent logging anchor not found")
 text = text.replace(parse_anchor, parse_log, 1)
 
-# Keep detailed key logging as well so ordinary remote buttons give us their
-# exact keysym/scancode and make the event sequence easy to correlate.
 keydown_anchor = "\t\tint mappedKey = ev.key.keysym.sym;\n#ifdef WEBOS\n"
 keydown_log = (
     "\t\tint mappedKey = ev.key.keysym.sym;\n#ifdef WEBOS\n"
@@ -86,8 +81,7 @@ if keydown_anchor not in text:
 text = text.replace(keydown_anchor, keydown_log, 1)
 
 # mappedKey is a local variable inside SDL_KEYDOWN. Give that switch case its
-# own scope so jumping to subsequent case labels is valid C++. Match only the
-# case labels themselves so this does not depend on upstream tabs/spaces.
+# own scope so jumping to subsequent case labels is valid C++.
 text, opened = re.subn(
     r"(?m)^(\s*)case SDL_KEYDOWN:\s*$",
     r"\1case SDL_KEYDOWN:\n\1{",
@@ -107,40 +101,4 @@ if closed != 1:
     raise SystemExit("SDL_KEYUP case label not found")
 
 path.write_text(text)
-
-# RetroArch does not consume its SDL queue strictly in chronological order on
-# webOS. It pumps SDL, then pulls keyboard/input events from a type range before
-# its video driver consumes SDL_WINDOWEVENTs. This matters for the LG Back key:
-# the compositor may also generate FOCUS_LOST (SDL_WINDOWEVENT 13) at the same
-# time. Give EmulationStation the same key-first behavior so the native Back
-# scancode can be handled before a pending focus event.
-main_path = source_root / "es-app/src/main.cpp"
-if not main_path.is_file():
-    raise SystemExit(f"missing upstream file: {main_path}")
-
-main_text = main_path.read_text()
-poll_call = "SDL_PollEvent(&event)"
-poll_call_count = main_text.count(poll_call)
-if poll_call_count != 2:
-    raise SystemExit(f"expected 2 SDL_PollEvent calls in main loop, found {poll_call_count}")
-main_text = main_text.replace(poll_call, "pollEmulationStationEvent(&event)")
-
-main_anchor = "int main(int argc, char* argv[])\n{\n"
-poll_helper = (
-    "static int pollEmulationStationEvent(SDL_Event* event)\n"
-    "{\n"
-    "#ifdef WEBOS\n"
-    "\tSDL_PumpEvents();\n"
-    "\tint result = SDL_PeepEvents(event, 1, SDL_GETEVENT, SDL_KEYDOWN, SDL_KEYUP);\n"
-    "\tif(result > 0)\n"
-    "\t\treturn result;\n"
-    "#endif\n"
-    "\treturn SDL_PollEvent(event);\n"
-    "}\n\n"
-)
-if main_anchor not in main_text:
-    raise SystemExit("main function anchor not found")
-main_text = main_text.replace(main_anchor, poll_helper + main_anchor, 1)
-main_path.write_text(main_text)
-
-print("Applied webOS Back handling, key-first SDL polling, remote mappings and full SDL event diagnostics")
+print("Applied webOS Back handling, remote mappings and SDL event diagnostics")
