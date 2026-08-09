@@ -9,7 +9,6 @@ on:
 
 permissions:
   contents: write
-  actions: write
 
 concurrency:
   group: emulationstation-webos-source-migration
@@ -100,170 +99,6 @@ jobs:
           PY
           rm -f scripts/patch-retropie-webos*.py
 
-      - name: Write direct-source GitHub Actions workflow
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-
-          template = r'''name: Build EmulationStation WebOS IPK
-
-          on:
-            push:
-              branches: [main]
-              tags: ['emulationstation_*_webos_*']
-            pull_request:
-            workflow_dispatch:
-
-          permissions:
-            contents: read
-
-          concurrency:
-            group: emulationstation-webos-@@{{ github.workflow }}-@@{{ github.ref }}
-            cancel-in-progress: true
-
-          env:
-            WEBOS_PACKAGE_VERSION: 1.0.0
-            WEBOS_BUILD_SUFFIX: webos0.1.0
-            SDK_ARCHIVE: arm-webos-linux-gnueabi_sdk-buildroot-x86_64.tar.gz
-            ARES_PACKAGE_URL: https://github.com/webosbrew/ares-cli-rs/releases/download/v0.2.0/ares-package_0.2.0-1_amd64.deb
-            ARES_PACKAGE_SHA256: 4d71e621e3a8b92903bc3f4c54cc8c3afac2f3083fca6972e4fecbd70cb40b5b
-            SDL2_ARCHIVE_URL: https://github.com/webosbrew/SDL-webOS/releases/download/release-2.30.12-webos.1/SDL2-2.30.12-webos-abi.tar.gz
-            VCPKG_REF: eaca4a577b6b678c6e10252754b6988a61746c19
-            VCPKG_TARGET_TRIPLET: arm-webos
-
-          jobs:
-            dependencies:
-              uses: ./.github/workflows/dependencies.yml
-
-            build:
-              needs: dependencies
-              runs-on: ubuntu-24.04
-              timeout-minutes: 90
-              steps:
-                - uses: actions/checkout@v4
-
-                - name: Check out pinned vcpkg
-                  uses: actions/checkout@v4
-                  with:
-                    repository: microsoft/vcpkg
-                    ref: @@{{ env.VCPKG_REF }}
-                    path: vcpkg
-                    fetch-depth: 1
-
-                - name: Validate build scripts
-                  run: bash -n scripts/*.sh
-
-                - name: Restore prepared dependencies
-                  uses: actions/cache/restore@v4
-                  with:
-                    path: vcpkg/installed
-                    key: @@{{ needs.dependencies.outputs.cache_key }}
-                    fail-on-cache-miss: true
-
-                - name: Download webOS build tools
-                  env:
-                    GH_TOKEN: @@{{ github.token }}
-                  run: |
-                    mkdir -p "$RUNNER_TEMP/downloads"
-                    curl --fail --location --retry 3 \
-                      "$ARES_PACKAGE_URL" \
-                      --output "$RUNNER_TEMP/downloads/ares-package.deb"
-                    echo "$ARES_PACKAGE_SHA256  $RUNNER_TEMP/downloads/ares-package.deb" \
-                      | sha256sum --check --strict
-                    gh release download \
-                      --repo openlgtv/buildroot-nc4 \
-                      --pattern "$SDK_ARCHIVE" \
-                      --dir "$RUNNER_TEMP/downloads"
-                    curl --fail --location --retry 3 \
-                      "$SDL2_ARCHIVE_URL" \
-                      --output "$RUNNER_TEMP/downloads/sdl2.tar.gz"
-
-                - name: Install build tools and SDK
-                  run: |
-                    sudo apt-get update
-                    sudo apt-get install -y \
-                      build-essential cmake librsvg2-bin ninja-build pkg-config \
-                      python3-jinja2 unzip xz-utils zip \
-                      "$RUNNER_TEMP/downloads/ares-package.deb"
-                    mkdir -p "$RUNNER_TEMP/webos-ndk" "$RUNNER_TEMP/sdl2"
-                    tar -xzf "$RUNNER_TEMP/downloads/$SDK_ARCHIVE" \
-                      -C "$RUNNER_TEMP/webos-ndk" \
-                      --strip-components=1
-                    "$RUNNER_TEMP/webos-ndk/relocate-sdk.sh"
-                    tar -xzf "$RUNNER_TEMP/downloads/sdl2.tar.gz" \
-                      -C "$RUNNER_TEMP/sdl2"
-
-                - name: Prepare toolchain
-                  run: |
-                    source "$RUNNER_TEMP/webos-ndk/environment-setup"
-                    export WEBOS_CHAINLOAD_TOOLCHAIN="$GITHUB_WORKSPACE/build/webos-chainload.cmake"
-                    bash scripts/create-toolchain.sh
-                    echo "WEBOS_CHAINLOAD_TOOLCHAIN=$WEBOS_CHAINLOAD_TOOLCHAIN" >> "$GITHUB_ENV"
-                    echo "SDL2_BUNDLE_DIR=$RUNNER_TEMP/sdl2" >> "$GITHUB_ENV"
-                    echo "VCPKG_ROOT=$GITHUB_WORKSPACE/vcpkg" >> "$GITHUB_ENV"
-
-                - name: Build EmulationStation WebOS
-                  run: |
-                    source "$RUNNER_TEMP/webos-ndk/environment-setup"
-                    EMULATIONSTATION_SOURCE_DIR="$GITHUB_WORKSPACE" \
-                      BUILD_DIR="$GITHUB_WORKSPACE/build/emulationstation" \
-                      bash scripts/build-webos.sh
-
-                - name: Package IPK
-                  run: |
-                    source "$RUNNER_TEMP/webos-ndk/environment-setup"
-                    EMULATIONSTATION_SOURCE_DIR="$GITHUB_WORKSPACE" \
-                      DIST_DIR="$GITHUB_WORKSPACE/dist" \
-                      bash scripts/package-webos.sh
-
-                - name: Upload artifact
-                  uses: actions/upload-artifact@v4
-                  with:
-                    name: emulationstation-webos-@@{{ github.sha }}-arm
-                    path: |
-                      dist/*.ipk
-                      dist/*.sha256
-                    if-no-files-found: error
-                    retention-days: 14
-
-            release:
-              if: github.ref_type == 'tag' && startsWith(github.ref_name, 'emulationstation_')
-              needs: build
-              runs-on: ubuntu-24.04
-              permissions:
-                contents: write
-              steps:
-                - uses: actions/download-artifact@v4
-                  with:
-                    name: emulationstation-webos-@@{{ github.sha }}-arm
-                    path: release
-                - name: Publish release
-                  env:
-                    GH_TOKEN: @@{{ github.token }}
-                  run: |
-                    cd release
-                    sha256sum --check *.sha256
-                    gh release create "$GITHUB_REF_NAME" *.ipk *.sha256 \
-                      --repo "$GITHUB_REPOSITORY" \
-                      --verify-tag \
-                      --title "$GITHUB_REF_NAME" \
-                      --generate-notes
-          '''
-          lines = template.splitlines()
-          nonempty = [line for line in lines if line.strip()]
-          indent = min(len(line) - len(line.lstrip()) for line in nonempty)
-          text = '\n'.join(line[indent:] if line.strip() else '' for line in lines).lstrip('\n')
-          text = text.replace('@@', '$')
-          Path('.github/workflows/build.yml').write_text(text)
-
-          deps = Path('.github/workflows/dependencies.yml')
-          text = deps.read_text()
-          text = text.replace('Prepare RetroPie webOS dependencies', 'Prepare EmulationStation WebOS dependencies')
-          text = text.replace('retropie-es-webos-deps-', 'emulationstation-webos-deps-')
-          deps.write_text(text)
-          PY
-
       - name: Write project identity and provenance
         run: |
           set -euo pipefail
@@ -274,7 +109,10 @@ jobs:
           baseline = os.environ['RETROPIE_ES_REF']
           pugixml = os.environ['PUGIXML_REF']
 
-          Path('README.md').write_text('''# EmulationStation WebOS
+          def clean(text: str) -> str:
+              return text.replace('\n          ', '\n').lstrip()
+
+          Path('README.md').write_text(clean('''# EmulationStation WebOS
 
           A TV-focused EmulationStation frontend for rooted LG webOS TVs, based on the RetroPie fork of EmulationStation.
 
@@ -320,12 +158,7 @@ jobs:
 
           ## Build
 
-          GitHub Actions builds this source tree directly using:
-
-          - the `openlgtv/buildroot-nc4` webOS Buildroot SDK
-          - `webosbrew/SDL-webOS`
-          - a pinned vcpkg revision for remaining libraries
-          - `ares-package` for IPK generation
+          GitHub Actions builds this source tree directly using the `openlgtv/buildroot-nc4` webOS Buildroot SDK, `webosbrew/SDL-webOS`, pinned vcpkg dependencies and `ares-package` for IPK generation.
 
           Pushes to `main` build an artifact similar to:
 
@@ -358,9 +191,9 @@ jobs:
           If this project is useful to you, you can support development on [Buy Me a Coffee](https://buymeacoffee.com/rf1705).
 
           GitHub funding metadata is available in [`.github/FUNDING.yml`](.github/FUNDING.yml).
-          '''.replace('\n          ', '\n').lstrip())
+          '''))
 
-          Path('LICENSE.md').write_text('''Copyright (c) 2014 Alec Lofquist
+          Path('LICENSE.md').write_text(clean('''Copyright (c) 2014 Alec Lofquist
           Copyright (c) 2026 Ronald Fiering
 
           Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -380,9 +213,9 @@ jobs:
           LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
           OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
           THE SOFTWARE.
-          '''.replace('\n          ', '\n').lstrip())
+          '''))
 
-          Path('UPSTREAM.md').write_text(f'''# Upstream baseline
+          Path('UPSTREAM.md').write_text(clean(f'''# Upstream baseline
 
           EmulationStation WebOS is based on the RetroPie fork of EmulationStation.
 
@@ -407,23 +240,21 @@ jobs:
           Compare or cherry-pick individual upstream changes intentionally rather than automatically rebasing the webOS project.
 
           `external/pugixml` is vendored rather than kept as a Git submodule; its own license files remain in that directory.
-          '''.replace('\n          ', '\n').lstrip())
+          '''))
 
           credits = Path('CREDITS.md')
-          credits.write_text(credits.read_text().rstrip() + '''
+          credits.write_text(credits.read_text().rstrip() + clean('''
 
           ## EmulationStation WebOS
 
           - Ronald Fiering (RF1705) - LG webOS port and maintenance
           - RetroPie EmulationStation contributors - upstream fork and ongoing EmulationStation development
-          '''.replace('\n          ', '\n'))
+          '''))
           PY
 
-      - name: Remove migration machinery and validate repository
+      - name: Validate standalone source tree
         run: |
           set -euo pipefail
-          rm -f .github/workflows/migrate-source.yml
-          rm -f .github/workflows/trigger-source-migration.yml
           test -f CMakeLists.txt
           test -d es-app
           test -d es-core
@@ -436,8 +267,8 @@ jobs:
             echo 'Patch scripts still present after migration.' >&2
             exit 1
           fi
-          if grep -R -n -E 'RETROPIE_ES_SOURCE_DIR|RETROPIE_ES_REF|repo_root/upstream' scripts .github/workflows/build.yml; then
-            echo 'Old upstream-at-build-time references still present.' >&2
+          if grep -R -n -E 'RETROPIE_ES_SOURCE_DIR|repo_root/upstream' scripts; then
+            echo 'Old upstream-at-build-time references still present in build helpers.' >&2
             exit 1
           fi
           grep -q '^buy_me_a_coffee: rf1705$' .github/FUNDING.yml
@@ -452,20 +283,7 @@ jobs:
           set -euo pipefail
           git config user.name 'Ronald Fiering'
           git config user.email 'rfiering@googlemail.com'
-          git add -A
+          git add -A -- ':!.github/workflows'
           git status --short
           git commit -m 'Vendor EmulationStation source for webOS'
           git push origin HEAD:main
-
-      - name: Start direct-source build
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          for attempt in 1 2 3 4 5; do
-            if gh workflow run build.yml --ref main --repo "$GITHUB_REPOSITORY"; then
-              exit 0
-            fi
-            sleep 2
-          done
-          exit 1
