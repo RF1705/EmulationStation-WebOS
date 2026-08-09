@@ -96,6 +96,13 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    /* SDL-webOS keeps the Back key for the TV shell by default. Claim it
+       explicitly so SDL emits SDL_SCANCODE_WEBOS_BACK to EmulationStation. */
+    if (setenv("SDL_WEBOS_ACCESS_POLICY_KEYS_BACK", "true", 1) < 0) {
+        perror("setenv SDL_WEBOS_ACCESS_POLICY_KEYS_BACK");
+        return 1;
+    }
+
     const char *home = getenv("HOME");
     char fallback_home[PATH_MAX];
     if (home == NULL || home[0] == '\0' || access(home, W_OK) != 0) {
