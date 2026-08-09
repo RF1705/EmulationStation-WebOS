@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source_dir="${RETROPIE_ES_SOURCE_DIR:-$repo_root/upstream}"
+source_dir="${EMULATIONSTATION_SOURCE_DIR:-$repo_root}"
 build_dir="${BUILD_DIR:-$repo_root/build/emulationstation}"
 vcpkg_root="${VCPKG_ROOT:-$repo_root/vcpkg}"
 triplet="${VCPKG_TARGET_TRIPLET:-arm-webos}"
@@ -15,20 +15,9 @@ for variable in CC CXX STAGING_DIR WEBOS_CHAINLOAD_TOOLCHAIN SDL2_BUNDLE_DIR; do
   fi
 done
 [[ -x "$host_cmake" ]] || { echo "Host CMake not found at $host_cmake" >&2; exit 1; }
-[[ -f "$source_dir/CMakeLists.txt" ]] || { echo "RetroPie EmulationStation source not found at $source_dir" >&2; exit 1; }
+[[ -f "$source_dir/CMakeLists.txt" ]] || { echo "EmulationStation source not found at $source_dir" >&2; exit 1; }
 [[ -f "$vcpkg_root/scripts/buildsystems/vcpkg.cmake" ]] || { echo "vcpkg toolchain not found below $vcpkg_root" >&2; exit 1; }
 
-python3 "$repo_root/scripts/patch-retropie-webos.py" "$source_dir"
-python3 "$repo_root/scripts/patch-retropie-webos-remote.py" "$source_dir"
-python3 "$repo_root/scripts/patch-retropie-webos-ui.py" "$source_dir"
-python3 "$repo_root/scripts/patch-retropie-webos-no-dummy.py" "$source_dir"
-python3 "$repo_root/scripts/patch-retropie-webos-quit.py" "$source_dir"
-python3 "$repo_root/scripts/patch-retropie-webos-browser.py" "$source_dir"
-python3 "$repo_root/scripts/patch-retropie-webos-scraper.py" "$source_dir"
-python3 "$repo_root/scripts/patch-retropie-webos-theme-anchor.py" "$source_dir" prepare
-python3 "$repo_root/scripts/patch-retropie-webos-theme-manager.py" "$source_dir"
-python3 "$repo_root/scripts/patch-retropie-webos-theme-runtime.py" "$source_dir"
-python3 "$repo_root/scripts/patch-retropie-webos-theme-anchor.py" "$source_dir" restore
 
 # Runtime SDL comes from the small SDL-webOS ABI bundle. RetroArch's webOS build
 # gets the LG-specific extension header (SDL_webOS.h) from the NDK's SDL package,

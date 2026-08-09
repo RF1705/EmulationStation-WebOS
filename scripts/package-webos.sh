@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source_dir="${RETROPIE_ES_SOURCE_DIR:-$repo_root/upstream}"
+source_dir="${EMULATIONSTATION_SOURCE_DIR:-$repo_root}"
 dist_dir="${DIST_DIR:-$repo_root/dist}"
 package_dir="$dist_dir/package"
 vcpkg_root="${VCPKG_ROOT:-$repo_root/vcpkg}"

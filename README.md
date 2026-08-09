@@ -1,42 +1,58 @@
-# EmulationStation for LG webOS
+# EmulationStation WebOS
 
-Experimental ARMv7 port of the RetroPie fork of EmulationStation for rooted LG webOS TVs.
+A TV-focused EmulationStation frontend for rooted LG webOS TVs, based on the RetroPie fork of EmulationStation.
 
-This repository contains the webOS build, compatibility patches and IPK packaging. The EmulationStation source itself is fetched from upstream during CI and is currently pinned to:
+This repository contains the EmulationStation application source directly. CI no longer downloads and patches `RetroPie/EmulationStation` for every build; webOS is maintained as a first-class target in this codebase.
 
-- Upstream: `RetroPie/EmulationStation`
-- Commit: `1071b8358b316ebda837933150db949bda90495e`
-- Target: ARMv7 / Cortex-A9 / softfp / NEON
-- Graphics: SDL-webOS + OpenGL ES 2
+- Target: LG webOS, ARMv7 / Cortex-A9 / softfp / NEON
+- Graphics/input: SDL-webOS + OpenGL ES 2
 - Package ID: `com.rf1705.emulationstation`
+- Upstream baseline: `RetroPie/EmulationStation` commit `1071b8358b316ebda837933150db949bda90495e`
+- License: MIT
 
-## webOS-specific choices
+## webOS integration
 
-The webOS build intentionally stays smaller than a normal desktop RetroPie build:
+The port is intentionally TV-native rather than a Raspberry Pi environment transplanted onto a TV.
 
-- no libVLC runtime; video widgets fall back to their static artwork
-- no ALSA mixer integration; SDL/webOS owns application audio/input
-- no Raspberry Pi-specific Broadcom/OMX code
-- no ES-DE dependencies such as FFmpeg, ICU, Poppler, HarfBuzz or libgit2
-- only the recursive shared-library dependency closure is included in the IPK
-- all packaged ELF files are stripped
+- LG Magic Remote navigation and OK input
+- Back is claimed from webOS and mapped to EmulationStation back/escape behavior
+- Home is claimed as the EmulationStation menu key while the webOS Home ribbon is suppressed inside the app
+- root-level Back asks before cleanly exiting EmulationStation
+- host shutdown/reboot actions are removed from the quit menu
+- graphical Games & Systems configuration for webOS paths
+- no artificial `webos` console/system entry in the carousel
+- a zero-system installation opens configuration instead of failing with the desktop EmulationStation error
+- built-in webOS-oriented UI text/localization and theme management
+- webOS file browser and scraper adaptations
 
-The first goal is a lightweight TV frontend that can later hand games off to native webOS ports such as ScummVM and RetroArch.
+## Source layout
+
+The EmulationStation application sources live directly in this repository:
+
+```text
+es-app/
+es-core/
+external/
+resources/
+CMake/
+CMakeLists.txt
+```
+
+`external/pugixml` is vendored as normal source files from the revision used by the imported upstream baseline. The previous `patch-retropie-webos-*.py` layer is gone.
+
+See [`UPSTREAM.md`](UPSTREAM.md) for the exact baseline and how to compare future RetroPie changes manually.
 
 ## Build
 
-GitHub Actions builds the webOS IPK using:
+GitHub Actions builds this source tree directly using the `openlgtv/buildroot-nc4` webOS Buildroot SDK, `webosbrew/SDL-webOS`, pinned vcpkg dependencies and `ares-package` for IPK generation.
 
-- the `webosbrew/openlgtv` Buildroot SDK
-- `webosbrew/SDL-webOS`
-- a pinned vcpkg revision for the remaining libraries
-- `ares-package` for IPK generation
-
-Pushes to `main` automatically build an artifact named similar to:
+Pushes to `main` build an artifact similar to:
 
 ```text
 com.rf1705.emulationstation_1.0.0-webos0.1.0_arm.ipk
 ```
+
+The webOS build deliberately omits Raspberry Pi-specific Broadcom/OMX code and the libVLC runtime. Packaged ELF files are stripped and only the required shared-library dependency closure is included.
 
 ## Runtime log
 
@@ -46,12 +62,18 @@ The native launcher redirects stdout and stderr to:
 /tmp/com.rf1705.emulationstation.log
 ```
 
-On a rooted TV this can be inspected with:
+On a rooted TV:
 
 ```sh
 cat /tmp/com.rf1705.emulationstation.log
 ```
 
-## Status
+## Project status
 
-Work in progress. Build and packaging are being adapted from the previously proven webOS ARM toolchain; input mapping, Magic Remote integration and automatic system/game configuration are subsequent porting steps.
+This is an active webOS fork and still a work in progress. The source history and architecture originate from EmulationStation and the RetroPie fork, while webOS-specific behavior is maintained here directly.
+
+## Support
+
+If this project is useful to you, you can support development on [Buy Me a Coffee](https://buymeacoffee.com/rf1705).
+
+GitHub funding metadata is available in [`.github/FUNDING.yml`](.github/FUNDING.yml).
