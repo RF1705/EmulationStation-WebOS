@@ -39,9 +39,41 @@ for old, new in replacements.items():
         raise SystemExit(f"remote key mapping anchor not found: {old}")
     text = text.replace(old, new)
 
-# Log the raw SDL values. If a particular TV still does not expose Back through
-# either semantic path, /tmp/com.rf1705.emulationstation.log will tell us the
-# exact keysym/scancode instead of requiring another guess.
+# Log every SDL event before InputManager dispatches it. Back is known not to
+# arrive as SDL_KEYDOWN on the tested TV, so this lets us see whether SDL emits
+# a window, mouse, user or other event instead. These entries go to the normal
+# EmulationStation log below <home>/.emulationstation/es_log.txt.
+parse_anchor = (
+    "bool InputManager::parseEvent(const SDL_Event& ev, Window* window)\n"
+    "{\n"
+    "\tbool causedEvent = false;\n"
+)
+parse_log = (
+    "bool InputManager::parseEvent(const SDL_Event& ev, Window* window)\n"
+    "{\n"
+    "\tbool causedEvent = false;\n"
+    "#ifdef WEBOS\n"
+    "\tLOG(LogInfo) << \"webOS SDL event: type=\" << (unsigned int)ev.type;\n"
+    "\tif(ev.type == SDL_WINDOWEVENT)\n"
+    "\t\tLOG(LogInfo) << \"webOS window event: event=\" << (int)ev.window.event\n"
+    "\t\t\t<< \" data1=\" << ev.window.data1 << \" data2=\" << ev.window.data2;\n"
+    "\telse if(ev.type == SDL_MOUSEBUTTONDOWN || ev.type == SDL_MOUSEBUTTONUP)\n"
+    "\t\tLOG(LogInfo) << \"webOS mouse button: button=\" << (int)ev.button.button\n"
+    "\t\t\t<< \" state=\" << (int)ev.button.state << \" x=\" << ev.button.x << \" y=\" << ev.button.y;\n"
+    "\telse if(ev.type == SDL_MOUSEWHEEL)\n"
+    "\t\tLOG(LogInfo) << \"webOS mouse wheel: x=\" << ev.wheel.x << \" y=\" << ev.wheel.y\n"
+    "\t\t\t<< \" direction=\" << (int)ev.wheel.direction;\n"
+    "\telse if(ev.type >= SDL_USEREVENT)\n"
+    "\t\tLOG(LogInfo) << \"webOS user event: type=\" << (unsigned int)ev.type\n"
+    "\t\t\t<< \" code=\" << ev.user.code << \" data1=\" << ev.user.data1 << \" data2=\" << ev.user.data2;\n"
+    "#endif\n"
+)
+if parse_anchor not in text:
+    raise SystemExit("parseEvent logging anchor not found")
+text = text.replace(parse_anchor, parse_log, 1)
+
+# Keep detailed key logging as well so ordinary remote buttons give us their
+# exact keysym/scancode and make the event sequence easy to correlate.
 keydown_anchor = "\t\tint mappedKey = ev.key.keysym.sym;\n#ifdef WEBOS\n"
 keydown_log = (
     "\t\tint mappedKey = ev.key.keysym.sym;\n#ifdef WEBOS\n"
@@ -74,4 +106,4 @@ if closed != 1:
     raise SystemExit("SDL_KEYUP case label not found")
 
 path.write_text(text)
-print("Applied native and standard SDL webOS Back handling plus Magic Remote logging")
+print("Applied webOS Back handling, remote mappings and full SDL event diagnostics")
