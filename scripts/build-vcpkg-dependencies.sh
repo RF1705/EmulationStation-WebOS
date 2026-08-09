@@ -29,6 +29,7 @@ export VCPKG_DISABLE_METRICS=1
   curl \
   freeimage \
   freetype \
+  libzip \
   rapidjson \
   --triplet "$triplet" \
   --overlay-triplets "$repo_root/vcpkg-triplets"
