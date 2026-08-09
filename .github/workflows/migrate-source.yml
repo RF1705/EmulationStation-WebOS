@@ -1,0 +1,454 @@
+name: Migrate EmulationStation source into repository
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/migrate-source.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: emulationstation-webos-source-migration
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out current repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Fetch pinned RetroPie baseline
+        env:
+          RETROPIE_ES_REF: 1071b8358b316ebda837933150db949bda90495e
+        run: |
+          set -euo pipefail
+          upstream="$RUNNER_TEMP/retropie-emulationstation"
+          git clone https://github.com/RetroPie/EmulationStation.git "$upstream"
+          git -C "$upstream" checkout --detach "$RETROPIE_ES_REF"
+          git -C "$upstream" submodule update --init --recursive
+          test "$(git -C "$upstream" rev-parse HEAD)" = "$RETROPIE_ES_REF"
+          echo "UPSTREAM_DIR=$upstream" >> "$GITHUB_ENV"
+          echo "PUGIXML_REF=$(git -C "$upstream/external/pugixml" rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Apply existing webOS port once
+        run: |
+          set -euo pipefail
+          python3 scripts/patch-retropie-webos.py "$UPSTREAM_DIR"
+          python3 scripts/patch-retropie-webos-remote.py "$UPSTREAM_DIR"
+          python3 scripts/patch-retropie-webos-ui.py "$UPSTREAM_DIR"
+          python3 scripts/patch-retropie-webos-no-dummy.py "$UPSTREAM_DIR"
+          python3 scripts/patch-retropie-webos-quit.py "$UPSTREAM_DIR"
+          python3 scripts/patch-retropie-webos-browser.py "$UPSTREAM_DIR"
+          python3 scripts/patch-retropie-webos-scraper.py "$UPSTREAM_DIR"
+          python3 scripts/patch-retropie-webos-theme-anchor.py "$UPSTREAM_DIR" prepare
+          python3 scripts/patch-retropie-webos-theme-manager.py "$UPSTREAM_DIR"
+          python3 scripts/patch-retropie-webos-theme-runtime.py "$UPSTREAM_DIR"
+          python3 scripts/patch-retropie-webos-theme-anchor.py "$UPSTREAM_DIR" restore
+
+      - name: Vendor patched source tree
+        run: |
+          set -euo pipefail
+          # Keep this repository's .github/, packaging/, build scripts and README.
+          # Everything else from the pinned, patched EmulationStation worktree is
+          # copied into the repository. The pugixml submodule is copied as normal
+          # files, so the resulting project no longer needs .gitmodules.
+          tar -C "$UPSTREAM_DIR" \
+            --exclude='./.git' \
+            --exclude='./.github' \
+            --exclude='./README.md' \
+            --exclude='./LICENSE.md' \
+            --exclude='./.gitmodules' \
+            --exclude='*/.git' \
+            -cf - . | tar -C "$GITHUB_WORKSPACE" -xf -
+          rm -f .gitmodules
+          find external -name .git -print -exec rm -rf {} + 2>/dev/null || true
+
+      - name: Convert build scripts to direct source builds
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          build = Path('scripts/build-webos.sh')
+          text = build.read_text()
+          text = text.replace(
+              'source_dir="${RETROPIE_ES_SOURCE_DIR:-$repo_root/upstream}"',
+              'source_dir="${EMULATIONSTATION_SOURCE_DIR:-$repo_root}"',
+          )
+          text = text.replace(
+              '[[ -f "$source_dir/CMakeLists.txt" ]] || { echo "RetroPie EmulationStation source not found at $source_dir" >&2; exit 1; }',
+              '[[ -f "$source_dir/CMakeLists.txt" ]] || { echo "EmulationStation source not found at $source_dir" >&2; exit 1; }',
+          )
+          text = '\n'.join(
+              line for line in text.splitlines()
+              if 'scripts/patch-retropie-webos' not in line
+          ) + '\n'
+          build.write_text(text)
+
+          package = Path('scripts/package-webos.sh')
+          text = package.read_text().replace(
+              'source_dir="${RETROPIE_ES_SOURCE_DIR:-$repo_root/upstream}"',
+              'source_dir="${EMULATIONSTATION_SOURCE_DIR:-$repo_root}"',
+          )
+          package.write_text(text)
+          PY
+
+          rm -f scripts/patch-retropie-webos*.py
+
+      - name: Update GitHub Actions for direct builds
+        run: |
+          set -euo pipefail
+          cat > .github/workflows/build.yml <<'YAML'
+          name: Build EmulationStation WebOS IPK
+
+          on:
+            push:
+              branches: [main]
+              tags: ['emulationstation_*_webos_*']
+            pull_request:
+            workflow_dispatch:
+
+          permissions:
+            contents: read
+
+          concurrency:
+            group: emulationstation-webos-${{ github.workflow }}-${{ github.ref }}
+            cancel-in-progress: true
+
+          env:
+            WEBOS_PACKAGE_VERSION: 1.0.0
+            WEBOS_BUILD_SUFFIX: webos0.1.0
+            SDK_ARCHIVE: arm-webos-linux-gnueabi_sdk-buildroot-x86_64.tar.gz
+            ARES_PACKAGE_URL: https://github.com/webosbrew/ares-cli-rs/releases/download/v0.2.0/ares-package_0.2.0-1_amd64.deb
+            ARES_PACKAGE_SHA256: 4d71e621e3a8b92903bc3f4c54cc8c3afac2f3083fca6972e4fecbd70cb40b5b
+            SDL2_ARCHIVE_URL: https://github.com/webosbrew/SDL-webOS/releases/download/release-2.30.12-webos.1/SDL2-2.30.12-webos-abi.tar.gz
+            VCPKG_REF: eaca4a577b6b678c6e10252754b6988a61746c19
+            VCPKG_TARGET_TRIPLET: arm-webos
+
+          jobs:
+            dependencies:
+              uses: ./.github/workflows/dependencies.yml
+
+            build:
+              needs: dependencies
+              runs-on: ubuntu-24.04
+              timeout-minutes: 90
+              steps:
+                - uses: actions/checkout@v4
+
+                - name: Check out pinned vcpkg
+                  uses: actions/checkout@v4
+                  with:
+                    repository: microsoft/vcpkg
+                    ref: ${{ env.VCPKG_REF }}
+                    path: vcpkg
+                    fetch-depth: 1
+
+                - name: Validate build scripts
+                  run: bash -n scripts/*.sh
+
+                - name: Restore prepared dependencies
+                  uses: actions/cache/restore@v4
+                  with:
+                    path: vcpkg/installed
+                    key: ${{ needs.dependencies.outputs.cache_key }}
+                    fail-on-cache-miss: true
+
+                - name: Download webOS build tools
+                  env:
+                    GH_TOKEN: ${{ github.token }}
+                  run: |
+                    mkdir -p "$RUNNER_TEMP/downloads"
+                    curl --fail --location --retry 3 \
+                      "$ARES_PACKAGE_URL" \
+                      --output "$RUNNER_TEMP/downloads/ares-package.deb"
+                    echo "$ARES_PACKAGE_SHA256  $RUNNER_TEMP/downloads/ares-package.deb" \
+                      | sha256sum --check --strict
+                    gh release download \
+                      --repo openlgtv/buildroot-nc4 \
+                      --pattern "$SDK_ARCHIVE" \
+                      --dir "$RUNNER_TEMP/downloads"
+                    curl --fail --location --retry 3 \
+                      "$SDL2_ARCHIVE_URL" \
+                      --output "$RUNNER_TEMP/downloads/sdl2.tar.gz"
+
+                - name: Install build tools and SDK
+                  run: |
+                    sudo apt-get update
+                    sudo apt-get install -y \
+                      build-essential cmake librsvg2-bin ninja-build pkg-config \
+                      python3-jinja2 unzip xz-utils zip \
+                      "$RUNNER_TEMP/downloads/ares-package.deb"
+                    mkdir -p "$RUNNER_TEMP/webos-ndk" "$RUNNER_TEMP/sdl2"
+                    tar -xzf "$RUNNER_TEMP/downloads/$SDK_ARCHIVE" \
+                      -C "$RUNNER_TEMP/webos-ndk" \
+                      --strip-components=1
+                    "$RUNNER_TEMP/webos-ndk/relocate-sdk.sh"
+                    tar -xzf "$RUNNER_TEMP/downloads/sdl2.tar.gz" \
+                      -C "$RUNNER_TEMP/sdl2"
+
+                - name: Prepare toolchain
+                  run: |
+                    source "$RUNNER_TEMP/webos-ndk/environment-setup"
+                    export WEBOS_CHAINLOAD_TOOLCHAIN="$GITHUB_WORKSPACE/build/webos-chainload.cmake"
+                    bash scripts/create-toolchain.sh
+                    echo "WEBOS_CHAINLOAD_TOOLCHAIN=$WEBOS_CHAINLOAD_TOOLCHAIN" >> "$GITHUB_ENV"
+                    echo "SDL2_BUNDLE_DIR=$RUNNER_TEMP/sdl2" >> "$GITHUB_ENV"
+                    echo "VCPKG_ROOT=$GITHUB_WORKSPACE/vcpkg" >> "$GITHUB_ENV"
+
+                - name: Build EmulationStation WebOS
+                  run: |
+                    source "$RUNNER_TEMP/webos-ndk/environment-setup"
+                    EMULATIONSTATION_SOURCE_DIR="$GITHUB_WORKSPACE" \
+                      BUILD_DIR="$GITHUB_WORKSPACE/build/emulationstation" \
+                      bash scripts/build-webos.sh
+
+                - name: Package IPK
+                  run: |
+                    source "$RUNNER_TEMP/webos-ndk/environment-setup"
+                    EMULATIONSTATION_SOURCE_DIR="$GITHUB_WORKSPACE" \
+                      DIST_DIR="$GITHUB_WORKSPACE/dist" \
+                      bash scripts/package-webos.sh
+
+                - name: Upload artifact
+                  uses: actions/upload-artifact@v4
+                  with:
+                    name: emulationstation-webos-${{ github.sha }}-arm
+                    path: |
+                      dist/*.ipk
+                      dist/*.sha256
+                    if-no-files-found: error
+                    retention-days: 14
+
+            release:
+              if: github.ref_type == 'tag' && startsWith(github.ref_name, 'emulationstation_')
+              needs: build
+              runs-on: ubuntu-24.04
+              permissions:
+                contents: write
+              steps:
+                - uses: actions/download-artifact@v4
+                  with:
+                    name: emulationstation-webos-${{ github.sha }}-arm
+                    path: release
+                - name: Publish release
+                  env:
+                    GH_TOKEN: ${{ github.token }}
+                  run: |
+                    cd release
+                    sha256sum --check *.sha256
+                    gh release create "$GITHUB_REF_NAME" *.ipk *.sha256 \
+                      --repo "$GITHUB_REPOSITORY" \
+                      --verify-tag \
+                      --title "$GITHUB_REF_NAME" \
+                      --generate-notes
+          YAML
+
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('.github/workflows/dependencies.yml')
+          text = p.read_text()
+          text = text.replace('Prepare RetroPie webOS dependencies', 'Prepare EmulationStation WebOS dependencies')
+          text = text.replace('retropie-es-webos-deps-', 'emulationstation-webos-deps-')
+          p.write_text(text)
+          PY
+
+      - name: Add project identity, license and upstream record
+        env:
+          RETROPIE_ES_REF: 1071b8358b316ebda837933150db949bda90495e
+        run: |
+          set -euo pipefail
+          cat > README.md <<'MARKDOWN'
+          # EmulationStation WebOS
+
+          A TV-focused EmulationStation frontend for rooted LG webOS TVs, based on the RetroPie fork of EmulationStation.
+
+          Unlike the early porting builds, this repository now contains the EmulationStation source directly. CI no longer downloads and patches `RetroPie/EmulationStation` for every build; webOS is maintained as a first-class target in this codebase.
+
+          - Target: LG webOS, ARMv7 / Cortex-A9 / softfp / NEON
+          - Graphics/input: SDL-webOS + OpenGL ES 2
+          - Package ID: `com.rf1705.emulationstation`
+          - Upstream baseline: `RetroPie/EmulationStation` commit `1071b8358b316ebda837933150db949bda90495e`
+          - License: MIT
+
+          ## webOS integration
+
+          The port is intentionally TV-native rather than a Raspberry Pi environment transplanted onto a TV.
+
+          - LG Magic Remote navigation and OK input
+          - Back is claimed from webOS and mapped to EmulationStation back/escape behavior
+          - Home is claimed as the EmulationStation menu key while the webOS Home ribbon is suppressed inside the app
+          - root-level Back asks before cleanly exiting EmulationStation
+          - host shutdown/reboot actions are removed from the quit menu
+          - graphical Games & Systems configuration for webOS paths
+          - no artificial `webos` console/system entry in the carousel
+          - a zero-system installation opens configuration instead of failing with the desktop EmulationStation error
+          - built-in webOS-oriented UI text/localization and theme management
+          - webOS file browser and scraper adaptations
+
+          ## Source layout
+
+          The original EmulationStation application sources now live directly in this repository:
+
+          ```text
+          es-app/
+          es-core/
+          external/
+          resources/
+          CMake/
+          CMakeLists.txt
+          ```
+
+          `external/pugixml` is vendored as normal source files from the submodule revision used by the pinned upstream baseline. The previous `patch-retropie-webos-*.py` layer is gone.
+
+          See [`UPSTREAM.md`](UPSTREAM.md) for the exact baseline and how to compare future RetroPie changes manually.
+
+          ## Build
+
+          GitHub Actions builds the source tree in this repository directly using:
+
+          - the `openlgtv/buildroot-nc4` webOS Buildroot SDK
+          - `webosbrew/SDL-webOS`
+          - a pinned vcpkg revision for remaining libraries
+          - `ares-package` for IPK generation
+
+          Pushes to `main` build an artifact similar to:
+
+          ```text
+          com.rf1705.emulationstation_1.0.0-webos0.1.0_arm.ipk
+          ```
+
+          The webOS build deliberately omits Raspberry Pi-specific Broadcom/OMX code and the libVLC runtime. Packaged ELF files are stripped and only the required shared-library dependency closure is included.
+
+          ## Runtime log
+
+          The native launcher redirects stdout and stderr to:
+
+          ```text
+          /tmp/com.rf1705.emulationstation.log
+          ```
+
+          On a rooted TV:
+
+          ```sh
+          cat /tmp/com.rf1705.emulationstation.log
+          ```
+
+          ## Project status
+
+          This is an active webOS fork and still a work in progress. The source history and architecture originate from EmulationStation and the RetroPie fork, while webOS-specific behavior is maintained here directly.
+
+          ## Support
+
+          If this project is useful to you, you can support development on [Buy Me a Coffee](https://buymeacoffee.com/rf1705).
+
+          GitHub Sponsors/Funding metadata is also available in [`.github/FUNDING.yml`](.github/FUNDING.yml).
+          MARKDOWN
+
+          cat > LICENSE.md <<'LICENSE'
+          Copyright (c) 2014 Alec Lofquist
+          Copyright (c) 2026 Ronald Fiering
+
+          Permission is hereby granted, free of charge, to any person obtaining a copy
+          of this software and associated documentation files (the "Software"), to deal
+          in the Software without restriction, including without limitation the rights
+          to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+          copies of the Software, and to permit persons to whom the Software is
+          furnished to do so, subject to the following conditions:
+
+          The above copyright notice and this permission notice shall be included in
+          all copies or substantial portions of the Software.
+
+          THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+          IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+          FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+          AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+          LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+          OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+          THE SOFTWARE.
+          LICENSE
+
+          cat > UPSTREAM.md <<MARKDOWN
+          # Upstream baseline
+
+          EmulationStation WebOS is based on the RetroPie fork of EmulationStation.
+
+          On 2026-08-09 the project switched from applying webOS patch scripts during CI to maintaining the complete application source directly in this repository.
+
+          - Upstream repository: \`RetroPie/EmulationStation\`
+          - Imported commit: \`$RETROPIE_ES_REF\`
+          - Vendored pugixml revision: \`$PUGIXML_REF\`
+          - Upstream license: MIT
+
+          The imported source was patched with the complete webOS patch set that had been used by the previous CI build before being committed here. This preserves the behavior of the last patch-based build while making future webOS work normal source changes.
+
+          ## Comparing future upstream changes
+
+          Upstream is no longer fetched during normal builds. To inspect later RetroPie changes in a local clone, add it as a secondary remote:
+
+          \`\`\`sh
+          git remote add retropie https://github.com/RetroPie/EmulationStation.git
+          git fetch retropie
+          \`\`\`
+
+          Then compare or cherry-pick individual upstream changes intentionally rather than automatically rebasing the webOS project.
+
+          `external/pugixml` is vendored rather than kept as a Git submodule; its own license files remain in that directory.
+          MARKDOWN
+
+          cat >> CREDITS.md <<'MARKDOWN'
+
+          ## EmulationStation WebOS
+
+          - Ronald Fiering (RF1705) - LG webOS port and maintenance
+          - RetroPie EmulationStation contributors - upstream fork and ongoing EmulationStation development
+          MARKDOWN
+
+      - name: Remove migration machinery and validate repository
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/migrate-source.yml
+          test -f CMakeLists.txt
+          test -d es-app
+          test -d es-core
+          test -d resources
+          test -d external/pugixml
+          test -f external/pugixml/LICENSE.md || test -f external/pugixml/LICENSE
+          test ! -e .gitmodules
+          test ! -d upstream
+          if find scripts -maxdepth 1 -name 'patch-retropie-webos*.py' -print -quit | grep -q .; then
+            echo 'Patch scripts still present after migration.' >&2
+            exit 1
+          fi
+          if grep -R -n -E 'RETROPIE_ES_SOURCE_DIR|RETROPIE_ES_REF|repo_root/upstream' \
+              scripts .github/workflows/build.yml; then
+            echo 'Old upstream-at-build-time references still present.' >&2
+            exit 1
+          fi
+          grep -q 'buy_me_a_coffee: rf1705' .github/FUNDING.yml
+          bash -n scripts/*.sh
+          git diff --check
+
+      - name: Commit source migration
+        run: |
+          set -euo pipefail
+          git config user.name 'Ronald Fiering'
+          git config user.email 'rfiering@googlemail.com'
+          git add -A
+          git status --short
+          git commit -m 'Vendor EmulationStation source for webOS'
+          git push origin HEAD:main
+
+      - name: Start direct-source build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run build.yml --ref main
