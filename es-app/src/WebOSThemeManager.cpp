@@ -16,6 +16,7 @@ static const std::vector<WebOSThemeEntry> sThemes = {
     {"Simple", "simple", "https://codeload.github.com/RetroPie/es-theme-simple/zip/5a6c1daf965b9d410398243c232a34911dad8826"},
     {"Simple Dark", "simple-dark", "https://codeload.github.com/RetroPie/es-theme-simple-dark/zip/058472cfbc3b4fe9ddf1ab452908fab40e32d29c"},
 };
+static const char* sBundledSimpleDarkArchive = "resources/bundled-themes/simple-dark.zip";
 
 const std::vector<WebOSThemeEntry>& webosThemes()
 {
@@ -57,6 +58,15 @@ static bool removeDirectory(const std::string& path)
             return false;
     }
     return rmdir(path.c_str()) == 0;
+}
+
+static void tryRemoveBundledSimpleDarkArchive()
+{
+    if(!Utils::FileSystem::isRegularFile(sBundledSimpleDarkArchive))
+        return;
+
+    if(Utils::FileSystem::removeFile(sBundledSimpleDarkArchive))
+        LOG(LogInfo) << "webOS theme manager: removed bundled Simple Dark archive after seeding";
 }
 
 static bool downloadFile(const std::string& url, const std::string& path, std::string& error)
@@ -241,9 +251,8 @@ bool webosInstallTheme(const WebOSThemeEntry& theme, std::string& error)
         return false;
     }
 
-    const std::string bundled = "resources/bundled-themes/simple-dark.zip";
-    if(std::string(theme.folderName) == "simple-dark" && Utils::FileSystem::isRegularFile(bundled))
-        return extractTheme(bundled, theme, error);
+    if(std::string(theme.folderName) == "simple-dark" && Utils::FileSystem::isRegularFile(sBundledSimpleDarkArchive))
+        return extractTheme(sBundledSimpleDarkArchive, theme, error);
 
     const std::string archivePath = configRoot + "/theme-download.zip";
     if(!downloadFile(theme.archiveUrl, archivePath, error))
@@ -278,7 +287,13 @@ bool webosEnsureBundledDefaultTheme(std::string& error)
 {
     Settings* settings = Settings::getInstance();
     if(settings->getBool("WebOSBundledSimpleDarkSeeded"))
+    {
+        // App updates may restore packaged resources. Once Simple Dark has
+        // already been seeded, release the one-shot archive again if webOS
+        // exposes the installed app directory as writable.
+        tryRemoveBundledSimpleDarkArchive();
         return true;
+    }
 
     const WebOSThemeEntry* simpleDark = nullptr;
     for(const auto& theme : sThemes)
@@ -289,7 +304,7 @@ bool webosEnsureBundledDefaultTheme(std::string& error)
 
     if(!webosThemeInstalled(*simpleDark))
     {
-        if(!Utils::FileSystem::isRegularFile("resources/bundled-themes/simple-dark.zip"))
+        if(!Utils::FileSystem::isRegularFile(sBundledSimpleDarkArchive))
         {
             error = webosTr("theme.error.bundled_missing", "The bundled Simple Dark theme archive is missing.");
             return false;
@@ -302,6 +317,7 @@ bool webosEnsureBundledDefaultTheme(std::string& error)
         settings->setString("ThemeSet", "simple-dark");
     settings->setBool("WebOSBundledSimpleDarkSeeded", true);
     settings->saveFile();
+    tryRemoveBundledSimpleDarkArchive();
     return true;
 }
 #endif
