@@ -129,31 +129,18 @@ int main(int argc, char **argv) {
     }
 
     char config_dir[PATH_MAX];
-    char bootstrap_dir[PATH_MAX];
-    char bootstrap_file[PATH_MAX];
     char config_file[PATH_MAX];
     char default_config[PATH_MAX];
     if (snprintf(config_dir, sizeof(config_dir), "%s/.emulationstation", home) >= (int)sizeof(config_dir) ||
-        snprintf(bootstrap_dir, sizeof(bootstrap_dir), "%s/bootstrap", config_dir) >= (int)sizeof(bootstrap_dir) ||
-        snprintf(bootstrap_file, sizeof(bootstrap_file), "%s/Systeme-konfigurieren.webos", bootstrap_dir) >= (int)sizeof(bootstrap_file) ||
         snprintf(config_file, sizeof(config_file), "%s/es_systems.cfg", config_dir) >= (int)sizeof(config_file) ||
         snprintf(default_config, sizeof(default_config), "%s/default-es_systems.cfg", app_dir) >= (int)sizeof(default_config)) {
         fputs("Configuration path is too long\n", stderr);
         return 1;
     }
 
-    if (ensure_directory(config_dir) < 0 || ensure_directory(bootstrap_dir) < 0) {
+    if (ensure_directory(config_dir) < 0) {
         perror("mkdir EmulationStation config");
         return 1;
-    }
-
-    if (access(bootstrap_file, F_OK) != 0) {
-        int marker = open(bootstrap_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-        if (marker >= 0) {
-            const char text[] = "webOS bootstrap entry\n";
-            (void)write(marker, text, sizeof(text) - 1);
-            close(marker);
-        }
     }
 
     /* RetroPie writes its desktop NES example after a missing config. Replace
