@@ -29,9 +29,11 @@ cp "$binary" "$package_dir/emulationstation.bin"
 cp -a "$source_dir/resources" "$package_dir/resources"
 cp "$repo_root/packaging/es_systems.cfg" "$package_dir/default-es_systems.cfg"
 
-# The upstream Simple Dark archive contains artwork for dozens of systems that
-# EmulationStation WebOS cannot configure. Keep the complete pinned archive in
-# the source repository, but package only the shared assets and webOS systems.
+# The pinned Simple Dark archive contains artwork for systems that have no
+# usable RetroArch core on webOS. Keep the complete archive in the repository,
+# but ship the shared assets plus platforms represented by the webosbrew ARMv7
+# core feed. Duplicate regional theme names (for example Genesis/Mega Drive or
+# Famicom/NES) stay available so user-defined systems can use either naming.
 bundled_theme_source="$source_dir/resources/bundled-themes/simple-dark.zip"
 bundled_theme_package="$package_dir/resources/bundled-themes/simple-dark.zip"
 if [[ -f "$bundled_theme_source" && -f "$bundled_theme_package" ]]; then
@@ -42,8 +44,64 @@ import zipfile
 
 source_path, destination_path = sys.argv[1:3]
 keep_dirs = {
-    "art", "scummvm", "nes", "snes", "megadrive", "mastersystem",
-    "gb", "gbc", "gba", "psx",
+    "art",
+    "3do",
+    "amiga",
+    "amstradcpc",
+    "apple2",
+    "arcade",
+    "atari2600",
+    "atari5200",
+    "atari7800",
+    "atari800",
+    "atarifalcon",
+    "atarijaguar",
+    "atarilynx",
+    "atarist",
+    "atarixe",
+    "c64",
+    "colecovision",
+    "daphne",
+    "dreamcast",
+    "famicom",
+    "fba",
+    "gamegear",
+    "gb",
+    "gba",
+    "gbc",
+    "genesis",
+    "intellivision",
+    "macintosh",
+    "mame",
+    "mastersystem",
+    "megadrive",
+    "moto",
+    "msx",
+    "n64",
+    "nds",
+    "neogeo",
+    "nes",
+    "ngp",
+    "ngpc",
+    "odyssey2",
+    "pc",
+    "pcengine",
+    "ports",
+    "psp",
+    "psx",
+    "saturn",
+    "scummvm",
+    "sega32x",
+    "segacd",
+    "sfc",
+    "sg-1000",
+    "snes",
+    "vectrex",
+    "videopac",
+    "virtualboy",
+    "wonderswan",
+    "wonderswancolor",
+    "zxspectrum",
 }
 keep_files = {"simple-dark.xml"}
 temporary_path = destination_path + ".trimmed"
