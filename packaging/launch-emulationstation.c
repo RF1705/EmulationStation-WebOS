@@ -97,13 +97,19 @@ int main(int argc, char **argv) {
     }
 
     /* SDL-webOS keeps shell keys for the TV shell by default. Claim Back and
-       Home explicitly so SDL emits their webOS scancodes to EmulationStation. */
+       Home explicitly so SDL emits their webOS scancodes to EmulationStation.
+       Home normally also opens the webOS ribbon; disable that shell action so
+       the claimed Home key stays inside EmulationStation. */
     if (setenv("SDL_WEBOS_ACCESS_POLICY_KEYS_BACK", "true", 1) < 0) {
         perror("setenv SDL_WEBOS_ACCESS_POLICY_KEYS_BACK");
         return 1;
     }
     if (setenv("SDL_WEBOS_ACCESS_POLICY_KEYS_HOME", "true", 1) < 0) {
         perror("setenv SDL_WEBOS_ACCESS_POLICY_KEYS_HOME");
+        return 1;
+    }
+    if (setenv("SDL_WEBOS_ACCESS_POLICY_RIBBON", "false", 1) < 0) {
+        perror("setenv SDL_WEBOS_ACCESS_POLICY_RIBBON");
         return 1;
     }
 
