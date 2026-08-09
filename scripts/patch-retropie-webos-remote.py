@@ -6,7 +6,8 @@ import sys
 if len(sys.argv) != 2:
     raise SystemExit("usage: patch-retropie-webos-remote.py <RetroPie EmulationStation source>")
 
-path = Path(sys.argv[1]).resolve() / "es-core/src/InputManager.cpp"
+source_root = Path(sys.argv[1]).resolve()
+path = source_root / "es-core/src/InputManager.cpp"
 if not path.is_file():
     raise SystemExit(f"missing upstream file: {path}")
 
@@ -106,4 +107,40 @@ if closed != 1:
     raise SystemExit("SDL_KEYUP case label not found")
 
 path.write_text(text)
-print("Applied webOS Back handling, remote mappings and full SDL event diagnostics")
+
+# RetroArch does not consume its SDL queue strictly in chronological order on
+# webOS. It pumps SDL, then pulls keyboard/input events from a type range before
+# its video driver consumes SDL_WINDOWEVENTs. This matters for the LG Back key:
+# the compositor may also generate FOCUS_LOST (SDL_WINDOWEVENT 13) at the same
+# time. Give EmulationStation the same key-first behavior so the native Back
+# scancode can be handled before a pending focus event.
+main_path = source_root / "es-app/src/main.cpp"
+if not main_path.is_file():
+    raise SystemExit(f"missing upstream file: {main_path}")
+
+main_text = main_path.read_text()
+poll_call = "SDL_PollEvent(&event)"
+poll_call_count = main_text.count(poll_call)
+if poll_call_count != 2:
+    raise SystemExit(f"expected 2 SDL_PollEvent calls in main loop, found {poll_call_count}")
+main_text = main_text.replace(poll_call, "pollEmulationStationEvent(&event)")
+
+main_anchor = "int main(int argc, char* argv[])\n{\n"
+poll_helper = (
+    "static int pollEmulationStationEvent(SDL_Event* event)\n"
+    "{\n"
+    "#ifdef WEBOS\n"
+    "\tSDL_PumpEvents();\n"
+    "\tint result = SDL_PeepEvents(event, 1, SDL_GETEVENT, SDL_KEYDOWN, SDL_KEYUP);\n"
+    "\tif(result > 0)\n"
+    "\t\treturn result;\n"
+    "#endif\n"
+    "\treturn SDL_PollEvent(event);\n"
+    "}\n\n"
+)
+if main_anchor not in main_text:
+    raise SystemExit("main function anchor not found")
+main_text = main_text.replace(main_anchor, poll_helper + main_anchor, 1)
+main_path.write_text(main_text)
+
+print("Applied webOS Back handling, key-first SDL polling, remote mappings and full SDL event diagnostics")
