@@ -23,12 +23,14 @@ python3 "$repo_root/scripts/patch-retropie-webos-remote.py" "$source_dir"
 python3 "$repo_root/scripts/patch-retropie-webos-ui.py" "$source_dir"
 python3 "$repo_root/scripts/patch-retropie-webos-browser.py" "$source_dir"
 python3 "$repo_root/scripts/patch-retropie-webos-scraper.py" "$source_dir"
+python3 "$repo_root/scripts/patch-retropie-webos-theme-anchor.py" "$source_dir" prepare
 python3 "$repo_root/scripts/patch-retropie-webos-theme-manager.py" "$source_dir"
+python3 "$repo_root/scripts/patch-retropie-webos-theme-anchor.py" "$source_dir" restore
 
 sdl_include="$(find "$SDL2_BUNDLE_DIR" -path '*/include/SDL2/SDL.h' -print -quit)"
 sdl_library="$(find "$SDL2_BUNDLE_DIR" -name 'libSDL2-2.0.so.0' -print -quit)"
 if [[ -z "$sdl_include" || -z "$sdl_library" ]]; then
-  echo "SDL-webOS headers or library were not found below $SDL2_BUNDLE_DIR" >&2
+  echo "$SDL2_BUNDLE_DIR does not contain SDL-webOS headers and libraries." >&2
   exit 1
 fi
 sdl_include="$(dirname "$sdl_include")"
