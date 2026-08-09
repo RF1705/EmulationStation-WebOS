@@ -9,7 +9,7 @@
   "appDescription": "RetroPie EmulationStation frontend for LG webOS",
   "iconColor": "#20232a",
   "noSplashOnLaunch": true,
+  "cloudgame_active": true,
   "useAllMouseButtons": true,
-  "useAllKeyboardKeys": true,
-  "disableBackHistoryAPI": true
+  "useAllKeyboardKeys": true
 }
