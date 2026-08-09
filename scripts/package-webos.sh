@@ -10,7 +10,7 @@ triplet="${VCPKG_TARGET_TRIPLET:-arm-webos}"
 version="${WEBOS_PACKAGE_VERSION:-1.0.0}"
 readelf_cmd="${READELF:-readelf}"
 
-for command in ares-package rsvg-convert; do
+for command in ares-package rsvg-convert python3; do
   command -v "$command" >/dev/null 2>&1 || { echo "$command is required." >&2; exit 1; }
 done
 command -v "$readelf_cmd" >/dev/null 2>&1 || [[ -x "$readelf_cmd" ]] || { echo "readelf is required." >&2; exit 1; }
@@ -28,6 +28,66 @@ mkdir -p "$package_dir/lib"
 cp "$binary" "$package_dir/emulationstation.bin"
 cp -a "$source_dir/resources" "$package_dir/resources"
 cp "$repo_root/packaging/es_systems.cfg" "$package_dir/default-es_systems.cfg"
+
+# The upstream Simple Dark archive contains artwork for dozens of systems that
+# EmulationStation WebOS cannot configure. Keep the complete pinned archive in
+# the source repository, but package only the shared assets and webOS systems.
+bundled_theme_source="$source_dir/resources/bundled-themes/simple-dark.zip"
+bundled_theme_package="$package_dir/resources/bundled-themes/simple-dark.zip"
+if [[ -f "$bundled_theme_source" && -f "$bundled_theme_package" ]]; then
+  python3 - "$bundled_theme_source" "$bundled_theme_package" <<'PY'
+import os
+import sys
+import zipfile
+
+source_path, destination_path = sys.argv[1:3]
+keep_dirs = {
+    "art", "scummvm", "nes", "snes", "megadrive", "mastersystem",
+    "gb", "gbc", "gba", "psx",
+}
+keep_files = {"simple-dark.xml"}
+temporary_path = destination_path + ".trimmed"
+
+with zipfile.ZipFile(source_path, "r") as source:
+    members = [member for member in source.infolist() if "/" in member.filename]
+    if not members:
+        raise SystemExit("Simple Dark archive has no codeload root directory")
+    root = members[0].filename.split("/", 1)[0]
+    prefix = root + "/"
+
+    selected = []
+    for member in source.infolist():
+        if not member.filename.startswith(prefix):
+            continue
+        relative = member.filename[len(prefix):]
+        if not relative:
+            continue
+        top = relative.split("/", 1)[0]
+        if relative in keep_files or top in keep_dirs:
+            selected.append(member)
+
+    required = {"simple-dark.xml", *keep_dirs}
+    present = set()
+    for member in selected:
+        relative = member.filename[len(prefix):]
+        present.add(relative.split("/", 1)[0])
+    missing = sorted(required - present)
+    if missing:
+        raise SystemExit("Simple Dark archive misses required webOS content: " + ", ".join(missing))
+
+    with zipfile.ZipFile(temporary_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as destination:
+        for member in selected:
+            if member.is_dir():
+                destination.writestr(member.filename, b"")
+            else:
+                destination.writestr(member.filename, source.read(member.filename))
+
+before = os.path.getsize(source_path)
+after = os.path.getsize(temporary_path)
+os.replace(temporary_path, destination_path)
+print(f"Bundled Simple Dark archive: {before} -> {after} bytes ({before - after} bytes saved)")
+PY
+fi
 
 "$CC" -Os -s "$repo_root/packaging/launch-emulationstation.c" -o "$package_dir/emulationstation"
 sed "s/@VERSION@/$version/g" "$repo_root/packaging/appinfo.json.in" > "$package_dir/appinfo.json"
