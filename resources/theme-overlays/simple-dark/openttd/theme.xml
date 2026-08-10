@@ -4,7 +4,7 @@
 
     <view name="system">
         <image name="background" extra="true">
-            <path>./art/openttd_background.png</path>
+            <path>./art/openttd_background.jpg</path>
         </image>
         <image name="logo">
             <path>./art/openttd.png</path>
